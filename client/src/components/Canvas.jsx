@@ -158,7 +158,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef }) => {
     const cardRef = useRef(null);
 
     // Set initial width
@@ -167,6 +167,18 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
             cardRef.current.style.width = '350px';
         }
     }, []);
+
+    // Register this card's ref for box selection
+    useEffect(() => {
+        if (cardRef.current && registerRef) {
+            registerRef(doc._id, cardRef.current);
+        }
+        return () => {
+            if (registerRef) {
+                registerRef(doc._id, null);
+            }
+        };
+    }, [doc._id, registerRef]);
 
     // If dragging this card (or it's part of selection), apply offset
     // The parent calculates position + offset
@@ -401,6 +413,10 @@ const Canvas = ({
     const [arrowDirection, setArrowDirection] = useState('forward'); // 'forward' | 'reverse'
     const [selectedIds, setSelectedIds] = useState([]);
     const [dragState, setDragState] = useState(null); // { startX, startY, currentX, currentY }
+    const [boxSelectState, setBoxSelectState] = useState(null); // { startX, startY, currentX, currentY } in screen coords
+    const [boxSelectPreviewIds, setBoxSelectPreviewIds] = useState([]); // IDs currently under box selection
+    const boxSelectPreviewRef = useRef([]); // Ref to track latest preview for mouseup handler
+    const cardRefs = useRef(new Map()); // Map<docId, HTMLElement>
 
     // Keyboard listeners
     useEffect(() => {
@@ -559,16 +575,27 @@ const Canvas = ({
     const handlePanMouseDown = (e) => {
         // Middle mouse or Left click on background (only if not handled by card)
         if (e.button === 0 || e.button === 1) {
-            // If clicking background, clear selection unless shift is held
-            if (!e.shiftKey) {
+            if (e.shiftKey) {
+                // Shift+Drag on background = box selection
+                setBoxSelectState({
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    currentX: e.clientX,
+                    currentY: e.clientY
+                });
+                document.body.style.cursor = 'crosshair';
+                document.body.style.userSelect = 'none';
+                document.addEventListener('mousemove', handleBoxSelectMove);
+                document.addEventListener('mouseup', handleBoxSelectUp);
+            } else {
+                // Normal click on background = clear selection and pan
                 setSelectedIds([]);
+                setIsPanning(true);
+                lastMousePos.current = { x: e.clientX, y: e.clientY };
+                document.body.style.cursor = 'grabbing';
+                document.addEventListener('mousemove', handlePanMove);
+                document.addEventListener('mouseup', handlePanUp);
             }
-
-            setIsPanning(true);
-            lastMousePos.current = { x: e.clientX, y: e.clientY };
-            document.body.style.cursor = 'grabbing';
-            document.addEventListener('mousemove', handlePanMove);
-            document.addEventListener('mouseup', handlePanUp);
         }
     };
 
@@ -591,6 +618,56 @@ const Canvas = ({
         document.body.style.cursor = '';
         document.removeEventListener('mousemove', handlePanMove);
         document.removeEventListener('mouseup', handlePanUp);
+    };
+
+    // ----- Box Selection Logic -----
+    const handleBoxSelectMove = (e) => {
+        const currentX = e.clientX;
+        const currentY = e.clientY;
+
+        setBoxSelectState(prev => ({
+            ...prev,
+            currentX,
+            currentY
+        }));
+
+        // Calculate preview selection in real-time
+        setBoxSelectState(prev => {
+            if (!prev) return prev;
+
+            const boxLeft = Math.min(prev.startX, currentX);
+            const boxTop = Math.min(prev.startY, currentY);
+            const boxRight = Math.max(prev.startX, currentX);
+            const boxBottom = Math.max(prev.startY, currentY);
+
+            const previewIds = [];
+            cardRefs.current.forEach((el, docId) => {
+                if (el) {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.left < boxRight && rect.right > boxLeft &&
+                        rect.top < boxBottom && rect.bottom > boxTop) {
+                        previewIds.push(docId);
+                    }
+                }
+            });
+
+            setBoxSelectPreviewIds(previewIds);
+            boxSelectPreviewRef.current = previewIds; // Keep ref in sync
+            return prev;
+        });
+    };
+
+    const handleBoxSelectUp = (e) => {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', handleBoxSelectMove);
+        document.removeEventListener('mouseup', handleBoxSelectUp);
+
+        // Commit the preview selection from ref (state might be stale in closure)
+        setSelectedIds(boxSelectPreviewRef.current);
+        setBoxSelectPreviewIds([]);
+        boxSelectPreviewRef.current = [];
+        setBoxSelectState(null);
     };
 
     // ----- Card Drag & Selection Logic -----
@@ -708,6 +785,21 @@ const Canvas = ({
                 pointerEvents: 'none'
             }} />
 
+            {/* Box Selection Rectangle */}
+            {boxSelectState && (
+                <div style={{
+                    position: 'fixed',
+                    left: Math.min(boxSelectState.startX, boxSelectState.currentX),
+                    top: Math.min(boxSelectState.startY, boxSelectState.currentY),
+                    width: Math.abs(boxSelectState.currentX - boxSelectState.startX),
+                    height: Math.abs(boxSelectState.currentY - boxSelectState.startY),
+                    border: '2px dashed var(--primary)',
+                    background: 'rgba(96, 165, 250, 0.1)',
+                    pointerEvents: 'none',
+                    zIndex: 9999
+                }} />
+            )}
+
             {/* Content Container */}
             <div style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -754,9 +846,16 @@ const Canvas = ({
                                 }}
                                 onDateClick={handleDateClick}
                                 onToggleExpand={onToggleExpand}
-                                isSelected={selectedIds.includes(doc._id)}
+                                isSelected={selectedIds.includes(doc._id) || boxSelectPreviewIds.includes(doc._id)}
                                 onMouseDown={handleCardMouseDown}
                                 dragOffset={selectedIds.includes(doc._id) ? dragOffset : null}
+                                registerRef={(id, el) => {
+                                    if (el) {
+                                        cardRefs.current.set(id, el);
+                                    } else {
+                                        cardRefs.current.delete(id);
+                                    }
+                                }}
                             />
                         ))}
 
