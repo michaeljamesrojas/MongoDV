@@ -1,5 +1,5 @@
 {
-  "name": "client",
+  "name": "mongodv",
   "private": true,
   "version": "0.0.0",
   "type": "module",

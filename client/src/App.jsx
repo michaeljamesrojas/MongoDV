@@ -314,7 +314,8 @@ function App() {
       padding: '1rem',
       height: '100%'
     }}>
-      <h2 style={{ marginBottom: '1.5rem', fontSize: '1.2rem', color: 'var(--primary)' }}>MongoDV</h2>
+      <h2 style={{ marginBottom: '0.25rem', fontSize: '1.2rem', color: 'var(--primary)' }}>MongoDV</h2>
+      <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '1.5rem' }}>Mongo Data Visualizer</div>
 
       <div style={{ marginBottom: '2rem' }}>
         <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
