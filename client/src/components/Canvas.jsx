@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete, onDateClick }) => {
+const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
@@ -157,7 +157,15 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDele
             </div>
 
             <div style={{ flex: 1 }}>
-                <DocumentCard data={doc.data} isRoot={true} onConnect={onConnect} onDateClick={onDateClick} />
+                <DocumentCard
+                    data={doc.data}
+                    isRoot={true}
+                    onConnect={onConnect}
+                    onDateClick={onDateClick}
+                    onToggleExpand={onToggleExpand}
+                    expandedPaths={doc.expandedPaths || []}
+                    docId={doc._id}
+                />
             </div>
         </div>
     );
@@ -261,7 +269,8 @@ const Canvas = ({
     gapNodes = [],
     onUpdateGapNodePosition,
     onAddGapNode,
-    onDeleteGapNode
+    onDeleteGapNode,
+    onToggleExpand
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
@@ -551,6 +560,7 @@ const Canvas = ({
                                 onClone={onClone}
                                 onDelete={onDelete}
                                 onDateClick={handleDateClick}
+                                onToggleExpand={onToggleExpand}
                             />
                         ))}
 

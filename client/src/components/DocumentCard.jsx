@@ -88,13 +88,25 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path })
     return <span style={{ color: '#cbd5e1' }}>{String(value)}</span>;
 };
 
-const CollapsibleField = ({ label, children, typeLabel, initialOpen = false }) => {
-    const [isOpen, setIsOpen] = useState(initialOpen);
+const CollapsibleField = ({ label, children, typeLabel, initialOpen = false, isOpen: controlledIsOpen, onToggle }) => {
+    const [localIsOpen, setLocalIsOpen] = useState(initialOpen);
+
+    const isControlled = controlledIsOpen !== undefined;
+    const isOpen = isControlled ? controlledIsOpen : localIsOpen;
+
+    const handleClick = (e) => {
+        e.stopPropagation();
+        if (isControlled && onToggle) {
+            onToggle();
+        } else {
+            setLocalIsOpen(!localIsOpen);
+        }
+    };
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
             <div
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={handleClick}
                 style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -119,44 +131,57 @@ const CollapsibleField = ({ label, children, typeLabel, initialOpen = false }) =
     );
 };
 
-const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '', docId }) => {
-    // Extract ID if at root
-    const currentDocId = isRoot ? (data._id || 'unknown') : docId;
+const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '', docId, expandedPaths, onToggleExpand }) => {
+    // Extract ID if at root. Prefer passed docId (Wrapper ID) over data._id if available.
+    const currentDocId = docId || (isRoot && data ? data._id : 'unknown');
+
+    // Helper to determine if a path is expanded
+    const isExpanded = (checkPath) => {
+        if (!expandedPaths) return undefined; // Return undefined to trigger local state fallback
+        return expandedPaths.includes(checkPath);
+    };
 
     // Array Handling
     if (Array.isArray(data)) {
         if (data.length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>[]</span>;
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                {data.map((item, index) => (
-                    <div key={index} style={{ display: 'flex', gap: '4px', alignItems: 'flex-start' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.8rem', minWidth: '15px' }}>{index}:</span>
-                        <div style={{ flex: 1 }}>
-                            {typeof item === 'object' && item !== null ? (
-                                <CollapsibleField
-                                    label={index}
-                                    typeLabel={Array.isArray(item) ? `Array[${item.length}]` : `Object{${Object.keys(item).length}}`}
-                                >
-                                    <DocumentCard
-                                        data={item}
+                {data.map((item, index) => {
+                    const currentPath = `${path ? path + '.' : ''}${index}`;
+                    return (
+                        <div key={index} style={{ display: 'flex', gap: '4px', alignItems: 'flex-start' }}>
+                            <span style={{ color: '#64748b', fontSize: '0.8rem', minWidth: '15px' }}>{index}:</span>
+                            <div style={{ flex: 1 }}>
+                                {typeof item === 'object' && item !== null ? (
+                                    <CollapsibleField
+                                        label={index}
+                                        typeLabel={Array.isArray(item) ? `Array[${item.length}]` : `Object{${Object.keys(item).length}}`}
+                                        isOpen={isExpanded(currentPath)}
+                                        onToggle={() => onToggleExpand && onToggleExpand(currentDocId, currentPath)}
+                                    >
+                                        <DocumentCard
+                                            data={item}
+                                            onConnect={onConnect}
+                                            onDateClick={onDateClick}
+                                            path={currentPath}
+                                            docId={currentDocId}
+                                            expandedPaths={expandedPaths}
+                                            onToggleExpand={onToggleExpand}
+                                        />
+                                    </CollapsibleField>
+                                ) : (
+                                    <ValueDisplay
+                                        value={item}
                                         onConnect={onConnect}
                                         onDateClick={onDateClick}
-                                        path={`${path ? path + '.' : ''}${index}`}
+                                        path={currentPath}
                                         docId={currentDocId}
                                     />
-                                </CollapsibleField>
-                            ) : (
-                                <ValueDisplay
-                                    value={item}
-                                    onConnect={onConnect}
-                                    onDateClick={onDateClick}
-                                    path={`${path ? path + '.' : ''}${index}`}
-                                    docId={currentDocId}
-                                />
-                            )}
+                                )}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         );
     }
@@ -179,6 +204,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                 label={key}
                                 typeLabel={typeCount}
                                 initialOpen={false}
+                                isOpen={isExpanded(nextPath)}
+                                onToggle={() => onToggleExpand && onToggleExpand(currentDocId, nextPath)}
                             >
                                 <DocumentCard
                                     data={value}
@@ -186,6 +213,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                     onDateClick={onDateClick}
                                     path={nextPath}
                                     docId={currentDocId}
+                                    expandedPaths={expandedPaths}
+                                    onToggleExpand={onToggleExpand}
                                 />
                             </CollapsibleField>
                         );

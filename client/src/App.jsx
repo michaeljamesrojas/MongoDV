@@ -30,6 +30,7 @@ function App() {
   const [showCanvas, setShowCanvas] = useState(false);
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
   const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -45,6 +46,14 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleOfflineMode = () => {
+    setIsOfflineMode(true);
+    setIsConnected(true);
+    setShowCanvas(true);
+    setDatabases([]);
+    setCollections({});
   };
 
   const handleDbClick = async (dbName) => {
@@ -144,7 +153,8 @@ function App() {
         data: doc,
         collection: selectedCollection?.col || 'Unknown',
         x: 100 + (prev.length % 5) * 40,
-        y: 100 + (prev.length % 5) * 40
+        y: 100 + (prev.length % 5) * 40,
+        expandedPaths: []
       }]);
     }
     // Optional: Flash a notification or something?
@@ -176,7 +186,8 @@ function App() {
       ...docToClone,
       _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
       x: docToClone.x + 20,
-      y: docToClone.y + 20
+      y: docToClone.y + 20,
+      expandedPaths: [...(docToClone.expandedPaths || [])]
     };
 
     setCanvasDocuments(prev => [...prev, newDoc]);
@@ -184,6 +195,19 @@ function App() {
 
   const handleDeleteCanvasDocument = (id) => {
     setCanvasDocuments(prev => prev.filter(d => d._id !== id));
+  };
+
+  const handleToggleExpand = (docId, path) => {
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === docId) {
+        const currentPaths = doc.expandedPaths || [];
+        const newPaths = currentPaths.includes(path)
+          ? currentPaths.filter(p => p !== path)
+          : [...currentPaths, path];
+        return { ...doc, expandedPaths: newPaths };
+      }
+      return doc;
+    }));
   };
 
   const handleConnectRequest = (id) => {
@@ -204,7 +228,8 @@ function App() {
           data: doc,
           collection: collectionName || 'Unknown',
           x: 200 + (prev.length % 5) * 40 + idx * 20, // Offset slightly
-          y: 200 + (prev.length % 5) * 40 + idx * 20
+          y: 200 + (prev.length % 5) * 40 + idx * 20,
+          expandedPaths: []
         }));
       return [...prev, ...addedDocs];
     });
@@ -290,12 +315,17 @@ function App() {
       <h2 style={{ marginBottom: '1.5rem', fontSize: '1.2rem', color: 'var(--primary)' }}>MongoDB Manager</h2>
 
       <div style={{ marginBottom: '2rem' }}>
-        <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Connected to:</div>
-        <div style={{ fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uri}>
-          {uri.replace(/\/\/([^:]+:[^@]+@)?/, '//***@')}
+        <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
+          {isOfflineMode ? 'Status' : 'Connected to:'}
+        </div>
+        <div style={{ fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={isOfflineMode ? 'Offline Mode' : uri}>
+          {isOfflineMode ? 'Offline Mode' : uri.replace(/\/\/([^:]+:[^@]+@)?/, '//***@')}
         </div>
         <button
-          onClick={() => setIsConnected(false)}
+          onClick={() => {
+            setIsConnected(false);
+            setIsOfflineMode(false);
+          }}
           style={{
             marginTop: '0.5rem',
             background: 'transparent',
@@ -303,10 +333,11 @@ function App() {
             color: '#94a3b8',
             padding: '0.25rem 0.5rem',
             borderRadius: '4px',
-            fontSize: '0.8rem'
+            fontSize: '0.8rem',
+            cursor: 'pointer'
           }}
         >
-          Disconnect
+          {isOfflineMode ? 'Connect to DB' : 'Disconnect'}
         </button>
       </div>
 
@@ -517,6 +548,40 @@ function App() {
         >
           {loading ? 'Connecting...' : 'Connect'}
         </button>
+
+        <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
+          <span style={{ color: '#64748b', fontSize: '0.9rem' }}>OR</span>
+          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleOfflineMode}
+          style={{
+            width: '100%',
+            marginTop: '1rem',
+            padding: '1rem',
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid var(--glass-border)',
+            color: '#cbd5e1',
+            borderRadius: '8px',
+            fontSize: '1rem',
+            fontWeight: 500,
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.borderColor = '#94a3b8';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+            e.currentTarget.style.borderColor = 'var(--glass-border)';
+          }}
+        >
+          Open Canvas (Offline)
+        </button>
       </form>
     </div>
   );
@@ -542,6 +607,7 @@ function App() {
                 onDelete={handleDeleteCanvasDocument}
                 onSave={handleOpenSaveModal}
                 onLoad={handleOpenLoadModal}
+                onToggleExpand={handleToggleExpand}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
