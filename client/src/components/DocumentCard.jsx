@@ -22,7 +22,8 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path })
         if (spanRef.current) {
             // Register if it's an ObjectId OR if it's marked as a source
             if (typeof value === 'string' && (isObjectId(value) || isMarkedSource)) {
-                const type = isIdField ? 'def' : 'ref';
+                // Marked sources act as 'def' so arrows can point TO them
+                const type = (isIdField || isMarkedSource) ? 'def' : 'ref';
                 registerNode(value, type, spanRef.current);
                 return () => unregisterNode(spanRef.current);
             }
@@ -83,6 +84,23 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path })
                     }}
                     title="Click to measure time gap"
                     data-date-value={value}
+                >
+                    "{value}"
+                </span>
+            );
+        }
+        // For marked sources that aren't ObjectIds or Dates, attach the ref
+        if (isMarkedSource) {
+            return (
+                <span
+                    ref={spanRef}
+                    style={{
+                        color: '#a5f3fc',
+                        wordBreak: 'break-word',
+                        textDecoration: 'underline',
+                        textDecorationStyle: 'dotted',
+                        textDecorationColor: '#fbbf24'
+                    }}
                 >
                     "{value}"
                 </span>
