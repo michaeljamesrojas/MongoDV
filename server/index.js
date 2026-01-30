@@ -1,5 +1,5 @@
 const express = require('express');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 require('dotenv').config();
 
@@ -126,6 +126,17 @@ app.post('/api/documents', async (req, res) => {
                     search = {};
                 }
             }
+
+            // Handle ObjectId conversion for _id field
+            if (search._id && typeof search._id === 'string' && ObjectId.isValid(search._id)) {
+                try {
+                    search._id = new ObjectId(search._id);
+                } catch (e) {
+                    console.warn("Invalid ObjectId provided for _id query", search._id);
+                }
+            }
+
+            console.log("Executing Query on", dbName + "." + colName, ":", JSON.stringify(search));
 
             const docs = await collection.find(search).limit(parseInt(limit)).toArray();
             return docs;
