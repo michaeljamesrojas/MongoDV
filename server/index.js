@@ -127,14 +127,30 @@ app.post('/api/documents', async (req, res) => {
                 }
             }
 
-            // Handle ObjectId conversion for _id field
-            if (search._id && typeof search._id === 'string' && ObjectId.isValid(search._id)) {
-                try {
-                    search._id = new ObjectId(search._id);
-                } catch (e) {
-                    console.warn("Invalid ObjectId provided for _id query", search._id);
+            // Recursive function to convert string ObjectIds to actual ObjectIds
+            const convertQueryIds = (obj) => {
+                if (Array.isArray(obj)) {
+                    return obj.map(item => convertQueryIds(item));
+                } else if (typeof obj === 'object' && obj !== null) {
+                    const newObj = {};
+                    for (const [key, value] of Object.entries(obj)) {
+                        if (typeof value === 'string' && value.length === 24 && ObjectId.isValid(value)) {
+                            try {
+                                newObj[key] = new ObjectId(value);
+                            } catch (e) {
+                                newObj[key] = value;
+                            }
+                        } else {
+                            newObj[key] = convertQueryIds(value);
+                        }
+                    }
+                    return newObj;
                 }
-            }
+                return obj;
+            };
+
+            // Apply conversions
+            search = convertQueryIds(search);
 
             console.log("Executing Query on", dbName + "." + colName, ":", JSON.stringify(search));
 
