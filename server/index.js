@@ -77,8 +77,36 @@ app.post('/api/collections', async (req, res) => {
     }
 });
 
+
+app.post('/api/schema', async (req, res) => {
+    const { uri, dbName, colName } = req.body;
+    if (!uri || !dbName || !colName) {
+        return res.status(400).json({ error: 'Connection string, database name, and collection name are required' });
+    }
+
+    try {
+        const schema = await withClient(uri, async (client) => {
+            const db = client.db(dbName);
+            const collection = db.collection(colName);
+            // Sample first 10 documents to infer schema
+            const docs = await collection.find({}).limit(10).toArray();
+
+            const keys = new Set();
+            docs.forEach(doc => {
+                Object.keys(doc).forEach(key => keys.add(key));
+            });
+
+            return Array.from(keys);
+        });
+        res.json({ keys: schema });
+    } catch (error) {
+        console.error('Schema inference error:', error);
+        res.status(500).json({ error: 'Failed to infer schema: ' + error.message });
+    }
+});
+
 app.post('/api/documents', async (req, res) => {
-    const { uri, dbName, colName, limit = 20 } = req.body;
+    const { uri, dbName, colName, limit = 20, query = {} } = req.body;
     if (!uri || !dbName || !colName) {
         return res.status(400).json({ error: 'Connection string, database name, and collection name are required' });
     }
@@ -87,7 +115,19 @@ app.post('/api/documents', async (req, res) => {
         const documents = await withClient(uri, async (client) => {
             const db = client.db(dbName);
             const collection = db.collection(colName);
-            const docs = await collection.find({}).limit(parseInt(limit)).toArray();
+
+            // Parse query if it's a string (though we expect object from body parser)
+            let search = query;
+            if (typeof query === 'string') {
+                try {
+                    search = JSON.parse(query);
+                } catch (e) {
+                    console.warn("Failed to parse query string, using empty query");
+                    search = {};
+                }
+            }
+
+            const docs = await collection.find(search).limit(parseInt(limit)).toArray();
             return docs;
         });
         res.json({ documents });

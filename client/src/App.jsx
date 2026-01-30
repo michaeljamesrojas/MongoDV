@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
-import { connectToMongo, listDatabases, listCollections, fetchDocuments } from './api';
+import { connectToMongo, listDatabases, listCollections, fetchDocuments, fetchSchema } from './api';
+import DocumentCard from './components/DocumentCard';
 import './index.css';
 
 function App() {
@@ -17,6 +18,8 @@ function App() {
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState(null);
   const [limit, setLimit] = useState(20);
+  const [schemaKeys, setSchemaKeys] = useState([]);
+  const [queryFilters, setQueryFilters] = useState([]); // Array of { field, operator, value }
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -73,7 +76,81 @@ function App() {
     // Let's keep it for now as it might be annoying to reset if user wants to browse with high limit.
     // Actually default to 20 is safer for performance.
     setLimit(20);
+    // Reset filters
+    setQueryFilters([]);
+
+    // Fetch Documents
     await fetchCollectionDocuments(dbName, colName, 20);
+
+    // Fetch Schema
+    try {
+      const schemaData = await fetchSchema(uri, dbName, colName);
+      setSchemaKeys(schemaData.keys || []);
+    } catch (err) {
+      console.error("Failed to fetch schema:", err);
+      setSchemaKeys([]);
+    }
+  };
+
+  const handleRunQuery = async () => {
+    if (!selectedCollection) return;
+
+    // Construct query object
+    const query = {};
+    queryFilters.forEach(filter => {
+      if (filter.field && filter.value !== '') {
+        // Simple equality for now. 
+        // TODO: Add support for $gt, $lt, etc. based on operator
+        // If value looks like a number, try to parse it? For now, keep as string/inferred.
+        // Let's try to be smart: if it looks like number, parse it.
+        let val = filter.value;
+        if (!isNaN(val) && val.trim() !== '') {
+          val = Number(val);
+        }
+
+        if (filter.operator === '=') {
+          query[filter.field] = val;
+        } else if (filter.operator === '!=') {
+          query[filter.field] = { $ne: val };
+        } else if (filter.operator === '>') {
+          query[filter.field] = { $gt: val };
+        } else if (filter.operator === '>=') {
+          query[filter.field] = { $gte: val };
+        } else if (filter.operator === '<') {
+          query[filter.field] = { $lt: val };
+        } else if (filter.operator === '<=') {
+          query[filter.field] = { $lte: val };
+        }
+      }
+    });
+
+    setDocLoading(true);
+    setDocError(null);
+    setDocuments([]);
+    try {
+      const data = await fetchDocuments(uri, selectedCollection.db, selectedCollection.col, limit, query);
+      setDocuments(data.documents);
+    } catch (err) {
+      setDocError(err.message);
+    } finally {
+      setDocLoading(false);
+    }
+  };
+
+  const addFilter = () => {
+    setQueryFilters([...queryFilters, { field: schemaKeys[0] || '', operator: '=', value: '' }]);
+  };
+
+  const removeFilter = (index) => {
+    const newFilters = [...queryFilters];
+    newFilters.splice(index, 1);
+    setQueryFilters(newFilters);
+  };
+
+  const updateFilter = (index, key, val) => {
+    const newFilters = [...queryFilters];
+    newFilters[index][key] = val;
+    setQueryFilters(newFilters);
   };
 
   const handleRefresh = () => {
@@ -284,7 +361,75 @@ function App() {
           <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
             {selectedCollection ? (
               <div>
-                <h2 style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {/* Query Builder Section */}
+                <div style={{ marginBottom: '2rem', background: 'var(--panel-bg)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h3 style={{ fontSize: '1.1rem', color: '#e2e8f0' }}>Query Builder</h3>
+                    <button onClick={addFilter} style={{
+                      background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.9rem'
+                    }}>+ Add Filter</button>
+                  </div>
+
+                  {queryFilters.length === 0 && (
+                    <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic', marginBottom: '1rem' }}>
+                      No filters active. Showing all documents.
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginBottom: '1.5rem' }}>
+                    {queryFilters.map((filter, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <select
+                          value={filter.field}
+                          onChange={(e) => updateFilter(idx, 'field', e.target.value)}
+                          style={{
+                            background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', flex: 1
+                          }}
+                        >
+                          {schemaKeys.map(key => <option key={key} value={key}>{key}</option>)}
+                          {!schemaKeys.includes(filter.field) && filter.field && <option value={filter.field}>{filter.field}</option>}
+                        </select>
+
+                        <select
+                          value={filter.operator}
+                          onChange={(e) => updateFilter(idx, 'operator', e.target.value)}
+                          style={{
+                            background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', width: '80px'
+                          }}
+                        >
+                          <option value="=">=</option>
+                          <option value="!=">!=</option>
+                          <option value=">">&gt;</option>
+                          <option value=">=">&gt;=</option>
+                          <option value="<">&lt;</option>
+                          <option value="<=">&lt;=</option>
+                        </select>
+
+                        <input
+                          type="text"
+                          placeholder="Value"
+                          value={filter.value}
+                          onChange={(e) => updateFilter(idx, 'value', e.target.value)}
+                          style={{
+                            background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', flex: 1
+                          }}
+                        />
+
+                        <button onClick={() => removeFilter(idx)} style={{
+                          background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', width: '30px', height: '30px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button onClick={handleRunQuery} style={{
+                    background: 'linear-gradient(to right, var(--primary), var(--accent))', color: 'white', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '6px', fontWeight: 600, cursor: 'pointer'
+                  }}>
+                    Run Query
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span style={{ opacity: 0.5 }}>Documents in</span>
                   <span style={{ color: 'var(--primary)' }}>{selectedCollection.col}</span>
                   <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#94a3b8' }}>
@@ -323,7 +468,7 @@ function App() {
                       Refresh
                     </button>
                   </div>
-                </h2>
+                </div>
 
                 {docError && (
                   <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', marginBottom: '1rem' }}>
@@ -345,11 +490,9 @@ function App() {
                         padding: '1rem',
                         fontSize: '0.9rem',
                         overflow: 'auto',
-                        maxHeight: '300px'
+                        maxHeight: '400px'
                       }}>
-                        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#cbd5e1', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                          {JSON.stringify(doc, null, 2)}
-                        </pre>
+                        <DocumentCard data={doc} isRoot={true} />
                       </div>
                     ))}
                     {documents.length === 0 && !docError && (
@@ -372,8 +515,9 @@ function App() {
         </>
       ) : (
         <ConnectionScreen />
-      )}
-    </div>
+      )
+      }
+    </div >
   );
 }
 

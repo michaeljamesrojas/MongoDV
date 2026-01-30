@@ -40,11 +40,25 @@ export const listCollections = async (uri, dbName) => {
     return response.json();
 };
 
-export const fetchDocuments = async (uri, dbName, colName, limit = 20) => {
+
+export const fetchSchema = async (uri, dbName, colName) => {
+    const response = await fetch(`${API_BASE}/schema`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri, dbName, colName }),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch schema');
+    }
+    return response.json();
+};
+
+export const fetchDocuments = async (uri, dbName, colName, limit = 20, query = {}) => {
     const response = await fetch(`${API_BASE}/documents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri, dbName, colName, limit }),
+        body: JSON.stringify({ uri, dbName, colName, limit, query }),
     });
     if (!response.ok) {
         const error = await response.json();
