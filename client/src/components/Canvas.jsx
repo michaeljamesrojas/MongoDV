@@ -5,7 +5,7 @@ import { ConnectionContext } from '../contexts/ConnectionContext';
 import { getColorFromId } from '../utils/colors';
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents }) => {
+const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {} }) => {
     // Track dimmed document IDs for line dimming
     const dimmedDocIds = useMemo(() => {
         const set = new Set();
@@ -83,7 +83,8 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                             // Check if either connected node is dimmed
                             const isDimmed = isNodeDimmed(refNode.ref) || isNodeDimmed(defNode.ref);
 
-                            const color = getColorFromId(refNode.value);
+                            const variation = idColorOverrides[refNode.value] || 0;
+                            const color = getColorFromId(refNode.value, variation);
 
                             newLines.push({
                                 id: `${nodeRegistry.current.get(refNode.ref)?.value}-${refNode.value}-${defNode.value}`, // More stable ID structure could help but index is ok for now
@@ -152,7 +153,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds]);
+    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides]);
 
     // Get unique values to create markers for
     const uniqueValues = useMemo(() => {
@@ -193,7 +194,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                         refY="3.5"
                         orient="auto"
                     >
-                        <polygon points="0 0, 10 3.5, 0 7" fill={getColorFromId(val)} opacity="0.5" />
+                        <polygon points="0 0, 10 3.5, 0 7" fill={getColorFromId(val, idColorOverrides[val] || 0)} opacity="0.5" />
                     </marker>
                 ))}
             </defs>
@@ -522,7 +523,9 @@ const Canvas = ({
     onHoistedFieldsChange,
     arrowDirection = 'forward',
     onArrowDirectionChange,
-    onToggleBackdrop
+    onToggleBackdrop,
+    idColorOverrides = {},
+    onIdColorChange
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
@@ -712,8 +715,10 @@ const Canvas = ({
         toggleHighlight,
         hoistedFields,
         toggleHoist,
-        onContextMenu: handleContextMenu
-    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, highlightedFields, toggleHighlight, hoistedFields, toggleHoist, handleContextMenu]);
+        onContextMenu: handleContextMenu,
+        idColorOverrides,
+        onIdColorChange
+    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, highlightedFields, toggleHighlight, hoistedFields, toggleHoist, handleContextMenu, idColorOverrides, onIdColorChange]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -1080,6 +1085,7 @@ const Canvas = ({
                 pan={pan}
                 canvasRef={canvasRef}
                 documents={documents}
+                idColorOverrides={idColorOverrides}
             />
 
             {/* Date Selection Indicators */}

@@ -13,7 +13,7 @@ const isDate = (value) => {
 };
 
 const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, collection }) => {
-    const { registerNode, unregisterNode, markedSources } = useConnection();
+    const { registerNode, unregisterNode, markedSources, idColorOverrides = {}, onIdColorChange } = useConnection();
     const spanRef = useRef(null);
 
     // Check if this field is marked as a source (keyed by collection:path)
@@ -45,24 +45,48 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, c
     if (typeof value === 'string') {
         if (isObjectId(value)) {
             return (
-                <span
-                    ref={spanRef}
-                    onClick={(e) => {
-                        if (onConnect) {
-                            e.stopPropagation();
-                            onConnect(value);
-                        }
-                    }}
-                    style={{
-                        color: getColorFromId(value),
-                        fontFamily: 'monospace',
-                        cursor: onConnect ? 'pointer' : 'text',
-                        textDecoration: onConnect ? 'underline' : 'none',
-                        textDecorationStyle: onConnect ? 'dotted' : 'none'
-                    }}
-                    title={onConnect ? "Click to connect" : ""}
-                >
-                    {value}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    {onIdColorChange && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onIdColorChange(value); }}
+                            title="Randomize Color"
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: getColorFromId(value, idColorOverrides[value] || 0),
+                                cursor: 'pointer',
+                                padding: '2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                fontSize: '0.8rem',
+                                opacity: 0.8,
+                                transition: 'transform 0.1s'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.2)'}
+                            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                            👁
+                        </button>
+                    )}
+                    <span
+                        ref={spanRef}
+                        onClick={(e) => {
+                            if (onConnect) {
+                                e.stopPropagation();
+                                onConnect(value);
+                            }
+                        }}
+                        style={{
+                            color: getColorFromId(value, idColorOverrides[value] || 0),
+                            fontFamily: 'monospace',
+                            cursor: onConnect ? 'pointer' : 'text',
+                            textDecoration: onConnect ? 'underline' : 'none',
+                            textDecorationStyle: onConnect ? 'dotted' : 'none'
+                        }}
+                        title={onConnect ? "Click to connect" : ""}
+                    >
+                        {value}
+                    </span>
                 </span>
             );
         }
@@ -93,17 +117,38 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, c
         // For marked sources that aren't ObjectIds or Dates, attach the ref
         if (isMarkedSource) {
             return (
-                <span
-                    ref={spanRef}
-                    style={{
-                        color: getColorFromId(value),
-                        wordBreak: 'break-word',
-                        textDecoration: 'underline',
-                        textDecorationStyle: 'dotted',
-                        textDecorationColor: getColorFromId(value)
-                    }}
-                >
-                    "{value}"
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    {onIdColorChange && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onIdColorChange(value); }}
+                            title="Randomize Color"
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: getColorFromId(value, idColorOverrides[value] || 0),
+                                cursor: 'pointer',
+                                padding: '2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                fontSize: '0.8rem',
+                                opacity: 0.8
+                            }}
+                        >
+                            👁
+                        </button>
+                    )}
+                    <span
+                        ref={spanRef}
+                        style={{
+                            color: getColorFromId(value, idColorOverrides[value] || 0),
+                            wordBreak: 'break-word',
+                            textDecoration: 'underline',
+                            textDecorationStyle: 'dotted',
+                            textDecorationColor: getColorFromId(value, idColorOverrides[value] || 0)
+                        }}
+                    >
+                        "{value}"
+                    </span>
                 </span>
             );
         }
@@ -262,7 +307,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                         );
                     }
 
-                    const { onContextMenu, markedSources, highlightedFields, hoistedFields: contextHoistedFields } = useConnection();
+                    const { onContextMenu, markedSources, highlightedFields, hoistedFields: contextHoistedFields, idColorOverrides = {} } = useConnection();
                     const isMarked = markedSources && collection && markedSources.has(`${collection}:${nextPath}`);
                     const isHighlighted = highlightedFields && collection && highlightedFields.has(`${collection}:${nextPath}`);
                     const isHoisted = contextHoistedFields && collection && contextHoistedFields.has(`${collection}:${nextPath}`);
@@ -290,14 +335,14 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                 }}
                                 style={{
                                     fontWeight: 600,
-                                    color: isHighlighted ? '#34d399' : (key === '_id' ? getColorFromId(value) : '#94a3b8'),
+                                    color: isHighlighted ? '#34d399' : (key === '_id' ? getColorFromId(value, idColorOverrides[value] || 0) : '#94a3b8'),
                                     fontSize: '0.85rem',
                                     whiteSpace: 'nowrap',
                                     cursor: 'context-menu',
                                     background: isMarked ? 'rgba(251, 191, 36, 0.2)' : 'transparent',
                                     padding: isMarked ? '2px 4px' : '0',
-                                    borderRadius: isMarked ? '3px' : '0',
-                                    border: isMarked ? '1px solid rgba(251, 191, 36, 0.4)' : 'none'
+                                    border: isMarked ? '1px solid rgba(251, 191, 36, 0.4)' : 'none',
+                                    borderRadius: '3px'
                                 }}
                             >{isHoisted && <span style={{ marginRight: '4px' }}>📌</span>}{key}:</span>
                             <ValueDisplay

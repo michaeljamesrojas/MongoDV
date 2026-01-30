@@ -36,6 +36,7 @@ function App() {
   const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [currentSaveName, setCurrentSaveName] = useState(null); // Track which save is currently loaded
+  const [idColorOverrides, setIdColorOverrides] = useState({}); // { [id]: variationIndex }
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -241,6 +242,13 @@ function App() {
     }));
   }, []);
 
+  const handleIdColorChange = useCallback((id) => {
+    setIdColorOverrides(prev => ({
+      ...prev,
+      [id]: (prev[id] || 0) + 1
+    }));
+  }, []);
+
   const handleConnectRequest = useCallback((id) => {
     setConnectModalState({ isOpen: true, sourceId: id });
   }, []);
@@ -306,6 +314,7 @@ function App() {
       highlightedFields: Array.from(highlightedFields), // Convert Set to Array for JSON serialization
       hoistedFields: Array.from(hoistedFields), // Convert Set to Array for JSON serialization
       arrowDirection: arrowDirection,
+      idColorOverrides: idColorOverrides,
       timestamp: Date.now()
     };
     localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
@@ -335,6 +344,8 @@ function App() {
       if (save.highlightedFields) setHighlightedFields(new Set(save.highlightedFields)); // Restore Set from Array
       if (save.hoistedFields) setHoistedFields(new Set(save.hoistedFields)); // Restore Set from Array
       if (save.arrowDirection) setArrowDirection(save.arrowDirection);
+      if (save.idColorOverrides) setIdColorOverrides(save.idColorOverrides);
+      else setIdColorOverrides({});
       setCurrentSaveName(name); // Track the loaded save name
     }
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
@@ -673,6 +684,8 @@ function App() {
                 onHoistedFieldsChange={setHoistedFields}
                 arrowDirection={arrowDirection}
                 onArrowDirectionChange={setArrowDirection}
+                idColorOverrides={idColorOverrides}
+                onIdColorChange={handleIdColorChange}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
