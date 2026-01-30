@@ -38,6 +38,7 @@ app.post('/api/connect', async (req, res) => {
     }
 });
 
+
 app.post('/api/databases', async (req, res) => {
     const { uri } = req.body;
     if (!uri) {
@@ -54,6 +55,25 @@ app.post('/api/databases', async (req, res) => {
     } catch (error) {
         console.error('List databases error:', error);
         res.status(500).json({ error: 'Failed to list databases: ' + error.message });
+    }
+});
+
+app.post('/api/collections', async (req, res) => {
+    const { uri, dbName } = req.body;
+    if (!uri || !dbName) {
+        return res.status(400).json({ error: 'Connection string and database name are required' });
+    }
+
+    try {
+        const collections = await withClient(uri, async (client) => {
+            const db = client.db(dbName);
+            const cols = await db.listCollections().toArray();
+            return cols;
+        });
+        res.json({ collections });
+    } catch (error) {
+        console.error('List collections error:', error);
+        res.status(500).json({ error: 'Failed to list collections: ' + error.message });
     }
 });
 

@@ -13,6 +13,7 @@ export const connectToMongo = async (uri) => {
     return response.json();
 };
 
+
 export const listDatabases = async (uri) => {
     const response = await fetch(`${API_BASE}/databases`, {
         method: 'POST',
@@ -22,6 +23,19 @@ export const listDatabases = async (uri) => {
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to list databases');
+    }
+    return response.json();
+};
+
+export const listCollections = async (uri, dbName) => {
+    const response = await fetch(`${API_BASE}/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri, dbName }),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to list collections');
     }
     return response.json();
 };

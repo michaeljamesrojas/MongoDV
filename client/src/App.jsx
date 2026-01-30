@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { connectToMongo, listDatabases } from './api';
+
+import { connectToMongo, listDatabases, listCollections } from './api';
 import './index.css';
 
 function App() {
+
   const [uri, setUri] = useState('mongodb://localhost:27017');
   const [isConnected, setIsConnected] = useState(false);
   const [databases, setDatabases] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [expandedDb, setExpandedDb] = useState(null);
+  const [collections, setCollections] = useState({});
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -22,6 +26,24 @@ function App() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDbClick = async (dbName) => {
+    if (expandedDb === dbName) {
+      setExpandedDb(null);
+      return;
+    }
+
+    setExpandedDb(dbName);
+
+    if (!collections[dbName]) {
+      try {
+        const data = await listCollections(uri, dbName);
+        setCollections(prev => ({ ...prev, [dbName]: data.collections }));
+      } catch (err) {
+        console.error("Failed to fetch collections:", err);
+      }
     }
   };
 
@@ -58,25 +80,65 @@ function App() {
         </button>
       </div>
 
+
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <h3 style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '1rem' }}>DATABASES</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {databases.map((db) => (
-            <div key={db.name} style={{
-              padding: '0.75rem',
-              background: 'rgba(255,255,255,0.03)',
-              borderRadius: '6px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-            >
-              <span style={{ fontWeight: 500 }}>{db.name}</span>
-              <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{(db.sizeOnDisk / 1024 / 1024).toFixed(0)} MB</span>
+            <div key={db.name}>
+              <div style={{
+                padding: '0.75rem',
+                background: expandedDb === db.name ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                borderRadius: '6px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                border: expandedDb === db.name ? '1px solid var(--primary)' : '1px solid transparent'
+              }}
+                onClick={() => handleDbClick(db.name)}
+                onMouseEnter={(e) => {
+                  if (expandedDb !== db.name) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+                }}
+                onMouseLeave={(e) => {
+                  if (expandedDb !== db.name) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+                }}
+              >
+                <span style={{ fontWeight: 500 }}>{db.name}</span>
+                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{(db.sizeOnDisk / 1024 / 1024).toFixed(0)} MB</span>
+              </div>
+
+              {expandedDb === db.name && (
+                <div style={{
+                  marginLeft: '1rem',
+                  paddingLeft: '1rem',
+                  borderLeft: '1px solid var(--glass-border)',
+                  marginTop: '0.5rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  {collections[db.name] ? (
+                    collections[db.name].map(col => (
+                      <div key={col.name} style={{
+                        padding: '0.5rem',
+                        fontSize: '0.9rem',
+                        color: '#cbd5e1',
+                        cursor: 'pointer',
+                        borderRadius: '4px'
+                      }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        📄 {col.name}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ padding: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
+                      Loading collections...
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
