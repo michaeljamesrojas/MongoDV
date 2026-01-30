@@ -75,7 +75,7 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
             query[field] = queryVal;
 
             const data = await fetchDocuments(initialUri, selectedDb, selectedCol, 20, query); // Default limit 20
-            onConnect(data.documents);
+            onConnect(data.documents, selectedCol);
             onClose();
         } catch (err) {
             setError(err.message);

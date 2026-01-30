@@ -214,7 +214,7 @@ function App() {
     setConnectModalState({ isOpen: true, sourceId: id });
   };
 
-  const handleConnectSubmit = (newDocs) => {
+  const handleConnectSubmit = (newDocs, collectionName) => {
     if (!newDocs || newDocs.length === 0) return;
 
     // Add new docs to canvas
@@ -226,6 +226,7 @@ function App() {
         .map((doc, idx) => ({
           _id: doc._id || Math.random().toString(36).substr(2, 9),
           data: doc,
+          collection: collectionName || 'Unknown',
           x: 200 + (prev.length % 5) * 40 + idx * 20, // Offset slightly
           y: 200 + (prev.length % 5) * 40 + idx * 20
         }));
