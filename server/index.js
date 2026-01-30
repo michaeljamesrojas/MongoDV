@@ -91,14 +91,33 @@ app.post('/api/schema', async (req, res) => {
             // Sample first 10 documents to infer schema
             const docs = await collection.find({}).limit(10).toArray();
 
-            const keys = new Set();
+            const schemaMap = {};
+
+            const getType = (val) => {
+                if (val === null) return 'Null';
+                if (val === undefined) return 'Undefined';
+                if (val instanceof ObjectId) return 'ObjectId';
+                if (val instanceof Date) return 'Date';
+                if (Array.isArray(val)) return 'Array';
+                return typeof val; // 'string', 'number', 'boolean', 'object'
+            };
+
             docs.forEach(doc => {
-                Object.keys(doc).forEach(key => keys.add(key));
+                Object.keys(doc).forEach(key => {
+                    const type = getType(doc[key]);
+                    if (!schemaMap[key]) {
+                        schemaMap[key] = type;
+                    } else if (schemaMap[key] !== type) {
+                        // Simple conflict resolution: if mixed, just keep it, or mark as Mixed.
+                        // For now, let's just stick with first seen or favor ObjectId/Date if present
+                        if (type === 'ObjectId' || type === 'Date') schemaMap[key] = type;
+                    }
+                });
             });
 
-            return Array.from(keys);
+            return schemaMap;
         });
-        res.json({ keys: schema });
+        res.json({ schema });
     } catch (error) {
         console.error('Schema inference error:', error);
         res.status(500).json({ error: 'Failed to infer schema: ' + error.message });
@@ -127,22 +146,23 @@ app.post('/api/documents', async (req, res) => {
                 }
             }
 
-            // Recursive function to convert string ObjectIds to actual ObjectIds
-            const convertQueryIds = (obj) => {
+            // Recursive function to convert extended JSON syntax ($oid, $date) to actual types
+            // and regular string ObjectIds
+            const processQuery = (obj) => {
                 if (Array.isArray(obj)) {
-                    return obj.map(item => convertQueryIds(item));
+                    return obj.map(item => processQuery(item));
                 } else if (typeof obj === 'object' && obj !== null) {
+                    // Check for extended syntax
+                    if (obj.$oid) {
+                        return new ObjectId(obj.$oid);
+                    }
+                    if (obj.$date) {
+                        return new Date(obj.$date);
+                    }
+
                     const newObj = {};
                     for (const [key, value] of Object.entries(obj)) {
-                        if (typeof value === 'string' && value.length === 24 && ObjectId.isValid(value)) {
-                            try {
-                                newObj[key] = new ObjectId(value);
-                            } catch (e) {
-                                newObj[key] = value;
-                            }
-                        } else {
-                            newObj[key] = convertQueryIds(value);
-                        }
+                        newObj[key] = processQuery(value);
                     }
                     return newObj;
                 }
@@ -150,7 +170,7 @@ app.post('/api/documents', async (req, res) => {
             };
 
             // Apply conversions
-            search = convertQueryIds(search);
+            search = processQuery(search);
 
             console.log("Executing Query on", dbName + "." + colName, ":", JSON.stringify(search));
 
