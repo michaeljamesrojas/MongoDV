@@ -405,7 +405,9 @@ const Canvas = ({
     onDeleteGapNode,
     onToggleExpand,
     markedSources = new Set(),
-    onMarkedSourcesChange
+    onMarkedSourcesChange,
+    highlightedFields = new Set(),
+    onHighlightedFieldsChange
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
@@ -456,6 +458,22 @@ const Canvas = ({
         }
         setContextMenu(null);
     }, [onMarkedSourcesChange]);
+
+    const toggleHighlight = useMemo(() => (collection, path) => {
+        const key = `${collection}:${path}`;
+        if (onHighlightedFieldsChange) {
+            onHighlightedFieldsChange(prev => {
+                const next = new Set(prev);
+                if (next.has(key)) {
+                    next.delete(key);
+                } else {
+                    next.add(key);
+                }
+                return next;
+            });
+        }
+        setContextMenu(null);
+    }, [onHighlightedFieldsChange]);
 
     const handleContextMenu = useMemo(() => (e, docId, path, collection) => {
         e.preventDefault();
@@ -543,14 +561,15 @@ const Canvas = ({
         nodeRegistry.current.delete(ref);
     }, []);
 
-    // Memoized Context Value
     const contextValue = useMemo(() => ({
         registerNode,
         unregisterNode,
         markedSources,
         toggleMarkAsSource,
+        highlightedFields,
+        toggleHighlight,
         onContextMenu: handleContextMenu
-    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, handleContextMenu]);
+    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, highlightedFields, toggleHighlight, handleContextMenu]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -942,6 +961,29 @@ const Canvas = ({
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                         {markedSources.has(`${contextMenu.collection}:${contextMenu.path}`) ? 'Unmark as Source' : 'Mark as Source'}
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleHighlight(contextMenu.collection, contextMenu.path);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        {highlightedFields.has(`${contextMenu.collection}:${contextMenu.path}`) ? '✗ Remove Highlight' : '★ Highlight Key-Value'}
                     </button>
                 </div>
             )}

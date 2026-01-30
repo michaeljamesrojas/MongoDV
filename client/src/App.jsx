@@ -28,6 +28,7 @@ function App() {
   const [gapNodes, setGapNodes] = useState([]);
   const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
   const [markedSources, setMarkedSources] = useState(new Set()); // Set<"collection:path">
+  const [highlightedFields, setHighlightedFields] = useState(new Set()); // Set<"collection:path">
   const [showCanvas, setShowCanvas] = useState(false);
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
   const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
@@ -289,6 +290,7 @@ function App() {
       gapNodes: gapNodes,
       view: canvasView,
       markedSources: Array.from(markedSources), // Convert Set to Array for JSON serialization
+      highlightedFields: Array.from(highlightedFields), // Convert Set to Array for JSON serialization
       timestamp: Date.now()
     };
     localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
@@ -304,6 +306,7 @@ function App() {
       if (save.gapNodes) setGapNodes(save.gapNodes);
       if (save.view) setCanvasView(save.view);
       if (save.markedSources) setMarkedSources(new Set(save.markedSources)); // Restore Set from Array
+      if (save.highlightedFields) setHighlightedFields(new Set(save.highlightedFields)); // Restore Set from Array
     }
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
   };
@@ -632,6 +635,8 @@ function App() {
                 onToggleExpand={handleToggleExpand}
                 markedSources={markedSources}
                 onMarkedSourcesChange={setMarkedSources}
+                highlightedFields={highlightedFields}
+                onHighlightedFieldsChange={setHighlightedFields}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

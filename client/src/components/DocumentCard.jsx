@@ -247,11 +247,25 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                         );
                     }
 
-                    const { onContextMenu, markedSources } = useConnection();
+                    const { onContextMenu, markedSources, highlightedFields } = useConnection();
                     const isMarked = markedSources && collection && markedSources.has(`${collection}:${nextPath}`);
+                    const isHighlighted = highlightedFields && collection && highlightedFields.has(`${collection}:${nextPath}`);
 
                     return (
-                        <div key={key} style={{ display: 'flex', gap: '6px', alignItems: 'baseline', padding: '1px 0' }}>
+                        <div key={key} style={{
+                            display: 'flex',
+                            gap: '6px',
+                            alignItems: 'baseline',
+                            padding: isHighlighted ? '4px 8px' : '1px 0',
+                            margin: isHighlighted ? '2px 0' : '0',
+                            background: isHighlighted
+                                ? 'linear-gradient(90deg, rgba(52, 211, 153, 0.15) 0%, rgba(59, 130, 246, 0.1) 100%)'
+                                : 'transparent',
+                            borderRadius: isHighlighted ? '6px' : '0',
+                            border: isHighlighted ? '1px solid rgba(52, 211, 153, 0.3)' : 'none',
+                            boxShadow: isHighlighted ? '0 0 8px rgba(52, 211, 153, 0.15)' : 'none',
+                            transition: 'all 0.2s ease'
+                        }}>
                             <span
                                 onContextMenu={(e) => {
                                     if (onContextMenu) {
@@ -260,7 +274,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                 }}
                                 style={{
                                     fontWeight: 600,
-                                    color: key === '_id' ? 'var(--primary)' : '#94a3b8',
+                                    color: isHighlighted ? '#34d399' : (key === '_id' ? 'var(--primary)' : '#94a3b8'),
                                     fontSize: '0.85rem',
                                     whiteSpace: 'nowrap',
                                     cursor: 'context-menu',
