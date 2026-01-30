@@ -411,14 +411,15 @@ const Canvas = ({
     highlightedFields = new Set(),
     onHighlightedFieldsChange,
     hoistedFields = new Set(),
-    onHoistedFieldsChange
+    onHoistedFieldsChange,
+    arrowDirection = 'forward',
+    onArrowDirectionChange
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
 
     const [isPanning, setIsPanning] = useState(false);
     const canvasRef = useRef(null);
-    const [arrowDirection, setArrowDirection] = useState('forward'); // 'forward' | 'reverse'
     const [selectedIds, setSelectedIds] = useState([]);
     const [dragState, setDragState] = useState(null); // { startX, startY, currentX, currentY }
     const [boxSelectState, setBoxSelectState] = useState(null); // { startX, startY, currentX, currentY } in screen coords
@@ -1066,7 +1067,7 @@ const Canvas = ({
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button
-                    onClick={() => setArrowDirection(prev => prev === 'forward' ? 'reverse' : 'forward')}
+                    onClick={() => onArrowDirectionChange && onArrowDirectionChange(prev => prev === 'forward' ? 'reverse' : 'forward')}
                     title={`Toggle Arrow Direction (${arrowDirection})`}
                     style={{
                         background: 'transparent',
