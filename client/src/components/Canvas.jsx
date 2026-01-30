@@ -403,7 +403,9 @@ const Canvas = ({
     onUpdateGapNodePosition,
     onAddGapNode,
     onDeleteGapNode,
-    onToggleExpand
+    onToggleExpand,
+    markedSources = new Set(),
+    onMarkedSourcesChange
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
@@ -436,22 +438,24 @@ const Canvas = ({
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
 
     // Mark as Source Logic - keyed by collection:path so all docs from same collection share the marking
-    const [markedSources, setMarkedSources] = useState(new Set()); // Set<"collection:path">
+    // markedSources is now passed as a prop from App.jsx
     const [contextMenu, setContextMenu] = useState(null); // { x, y, docId, path, collection }
 
     const toggleMarkAsSource = useMemo(() => (collection, path) => {
         const key = `${collection}:${path}`;
-        setMarkedSources(prev => {
-            const next = new Set(prev);
-            if (next.has(key)) {
-                next.delete(key);
-            } else {
-                next.add(key);
-            }
-            return next;
-        });
+        if (onMarkedSourcesChange) {
+            onMarkedSourcesChange(prev => {
+                const next = new Set(prev);
+                if (next.has(key)) {
+                    next.delete(key);
+                } else {
+                    next.add(key);
+                }
+                return next;
+            });
+        }
         setContextMenu(null);
-    }, []);
+    }, [onMarkedSourcesChange]);
 
     const handleContextMenu = useMemo(() => (e, docId, path, collection) => {
         e.preventDefault();
