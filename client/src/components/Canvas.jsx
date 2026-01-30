@@ -57,11 +57,17 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
             if (canvasRef.current) {
                 const canvasRect = canvasRef.current.getBoundingClientRect();
 
-                // Helper to get Canvas Coords from Rect
-                const getCanvasCoords = (rect) => ({
-                    x: (rect.left - canvasRect.left + rect.width / 2),
-                    y: (rect.top - canvasRect.top + rect.height / 2)
-                });
+                // Helper to get Canvas Coords from Rect - now uses the "end" (right side) of the element
+                const getCanvasCoords = (rect, anchor = 'right') => {
+                    let xOffset = rect.width / 2;
+                    if (anchor === 'right') xOffset = rect.width;
+                    if (anchor === 'left') xOffset = 0;
+
+                    return {
+                        x: (rect.left - canvasRect.left + xOffset),
+                        y: (rect.top - canvasRect.top + rect.height / 2)
+                    };
+                };
 
                 Object.values(grouped).forEach(({ defs, refs }) => {
                     if (defs.length === 0 || refs.length === 0) return;
@@ -108,7 +114,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                     if (sourceEl) {
                         const sourceRect = sourceEl.getBoundingClientRect();
                         if (sourceRect.width > 0) {
-                            const sourcePos = getCanvasCoords(sourceRect);
+                            const sourcePos = getCanvasCoords(sourceRect, 'right');
 
                             const gapScreenX = node.x * zoom + pan.x;
                             const gapScreenY = node.y * zoom + pan.y;
@@ -129,7 +135,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                     if (targetEl) {
                         const targetRect = targetEl.getBoundingClientRect();
                         if (targetRect.width > 0) {
-                            const targetPos = getCanvasCoords(targetRect);
+                            const targetPos = getCanvasCoords(targetRect, 'right');
 
                             const gapScreenX = node.x * zoom + pan.x;
                             const gapScreenY = node.y * zoom + pan.y;
