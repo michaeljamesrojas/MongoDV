@@ -175,6 +175,8 @@ function App() {
         collection: selectedCollection?.col || 'Unknown',
         x: centerX - 175, // Center the 350px card
         y: centerY - 100,
+        width: 350,
+        height: null,
         expandedPaths: []
       }];
     });
@@ -190,6 +192,8 @@ function App() {
         collection: 'Custom',
         x: x,
         y: y,
+        width: 350,
+        height: null,
         expandedPaths: []
       }];
     });
@@ -212,6 +216,12 @@ function App() {
       d._id === id ? { ...d, x, y } : d
     ));
   };
+
+  const handleUpdateCanvasDimensions = useCallback((id, width, height) => {
+    setCanvasDocuments(prev => prev.map(d =>
+      d._id === id ? { ...d, width, height } : d
+    ));
+  }, []);
 
   const handleUpdateCanvasPositions = (updates) => {
     // updates: { [id]: { x, y } }
@@ -238,6 +248,8 @@ function App() {
       _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
       x: docToClone.x + 20,
       y: docToClone.y + 20,
+      width: docToClone.width || 350,
+      height: docToClone.height || null,
       expandedPaths: [...(docToClone.expandedPaths || [])]
     };
 
@@ -328,6 +340,8 @@ function App() {
           collection: collectionName || 'Unknown',
           x: baseX + idx * 30, // Offset each new doc slightly
           y: baseY + idx * 30,
+          width: 350,
+          height: null,
           expandedPaths: []
         }));
 
@@ -734,6 +748,7 @@ function App() {
                 onViewStateChange={setCanvasView}
                 onUpdatePosition={handleUpdateCanvasPosition}
                 onUpdatePositions={handleUpdateCanvasPositions}
+                onUpdateDimensions={handleUpdateCanvasDimensions}
                 onUpdateGapNodePosition={handleUpdateGapNodePosition}
                 onAddGapNode={handleAddGapNode}
                 onDeleteGapNode={handleDeleteGapNode}

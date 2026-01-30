@@ -271,17 +271,85 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions }) => {
     const cardRef = useRef(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState('');
 
-    // Set initial width
+    // Set initial width and handle resizing
     useEffect(() => {
-        if (cardRef.current && !cardRef.current.style.width) {
+        if (!cardRef.current) return;
+
+        // Apply initial dimensions if they exist
+        if (doc.width) {
+            cardRef.current.style.width = `${doc.width}px`;
+        } else {
             cardRef.current.style.width = '350px';
         }
-    }, []);
+
+        if (doc.height) {
+            cardRef.current.style.height = `${doc.height}px`;
+        } else {
+            cardRef.current.style.height = ''; // Ensure it's empty so it behaves as 'auto'
+        }
+
+        // Implementation of a simple debounce
+        let timeout;
+        const debouncedUpdate = (w, h) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                if (onUpdateDimensions) {
+                    onUpdateDimensions(doc._id, w, h);
+                }
+            }, 500);
+        };
+
+        const ro = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const target = entry.target;
+
+                // Only sync height if the user has manually set it (via resize handle)
+                // browser sets target.style.height/width when resizing via 'resize: both'
+                const hasInlineWidth = target.style.width !== "";
+                const hasInlineHeight = target.style.height !== "";
+
+                // We also check offsetWidth/Height for the actual values to save
+                const actualWidth = target.offsetWidth;
+                const actualHeight = target.offsetHeight;
+
+                // Match against current state dimensions. 
+                const currentWidth = doc.width || 350;
+                const currentHeight = doc.height; // could be null
+
+                let shouldUpdate = false;
+                let updateWidth = currentWidth;
+                let updateHeight = currentHeight;
+
+                // Sync width if it differs from state (usually fixed at 350 by default anyway)
+                if (Math.abs(actualWidth - currentWidth) > 3) {
+                    shouldUpdate = true;
+                    updateWidth = actualWidth;
+                }
+
+                // IMPORTANT: Only sync height if we intentionally HAVE a height 
+                // (either from state or via manual inline style from browser resize)
+                if (hasInlineHeight && (currentHeight === null || Math.abs(actualHeight - currentHeight) > 3)) {
+                    shouldUpdate = true;
+                    updateHeight = actualHeight;
+                }
+
+                if (shouldUpdate) {
+                    debouncedUpdate(updateWidth, updateHeight);
+                }
+            }
+        });
+
+        ro.observe(cardRef.current);
+        return () => {
+            ro.disconnect();
+            clearTimeout(timeout);
+        };
+    }, [doc._id, onUpdateDimensions, doc.width, doc.height]);
 
     // Register this card's ref for box selection
     useEffect(() => {
@@ -320,7 +388,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                 border: '1px solid var(--glass-border)',
                 padding: '1rem',
                 resize: 'both',
-                overflow: 'auto',
+                overflow: 'hidden', // Changed from auto to hidden to better handle resize interactions
                 minWidth: '200px',
                 minHeight: '100px',
                 display: 'flex',
@@ -647,6 +715,7 @@ const Canvas = ({
     onViewStateChange,
     onUpdatePosition,
     onUpdatePositions,
+    onUpdateDimensions,
     onConnect,
     onClone,
     onDelete,
@@ -1323,6 +1392,7 @@ const Canvas = ({
                                     backdropMouseDown={backdropMouseDown}
                                     onToggleBackdrop={onToggleBackdrop}
                                     onUpdateData={onUpdateData}
+                                    onUpdateDimensions={onUpdateDimensions}
                                 />
                             );
                         })}
