@@ -290,6 +290,36 @@ function App() {
 
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ paddingBottom: '1rem', marginBottom: '1rem', borderBottom: '1px solid var(--glass-border)' }}>
+          <button
+            onClick={() => { setShowCanvas(true); setExpandedDb(null); setSelectedCollection(null); }}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              background: showCanvas ? 'var(--primary)' : 'rgba(255,255,255,0.03)',
+              color: showCanvas ? 'white' : '#cbd5e1',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s',
+              fontWeight: 500
+            }}
+            onMouseEnter={e => !showCanvas && (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+            onMouseLeave={e => !showCanvas && (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>🎨</span>
+              <span>Canvas</span>
+            </div>
+            <span style={{ fontSize: '0.8rem', background: 'rgba(0,0,0,0.2)', padding: '2px 8px', borderRadius: '12px' }}>
+              {canvasDocuments.length}
+            </span>
+          </button>
+        </div>
+
         <h3 style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '1rem' }}>DATABASES</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {databases.map((db) => (
@@ -475,7 +505,19 @@ function App() {
         <>
           <Sidebar />
           <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
-            {selectedCollection ? (
+            {showCanvas ? (
+              <Canvas
+                documents={canvasDocuments}
+                viewState={canvasView}
+                onViewStateChange={setCanvasView}
+                onUpdatePosition={handleUpdateCanvasPosition}
+                onConnect={handleConnectRequest}
+                onClone={handleCloneCanvasDocument}
+                onDelete={handleDeleteCanvasDocument}
+                onSave={handleOpenSaveModal}
+                onLoad={handleOpenLoadModal}
+              />
+            ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -483,178 +525,124 @@ function App() {
                       {selectedCollection.col}
                     </h1>
                   </div>
-                  <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                    <button
-                      onClick={() => setShowCanvas(false)}
+                </div>
+
+                <QueryBuilder schema={schema} onRunQuery={handleRunQuery} />
+
+                <div style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span style={{ opacity: 0.5 }}>Documents in</span>
+                  <span style={{ color: 'var(--primary)' }}>{selectedCollection.col}</span>
+                  <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#94a3b8' }}>
+                    {documents.length} results
+                  </span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Limit:</label>
+                    <input
+                      type="number"
+                      value={limit}
+                      onChange={(e) => setLimit(e.target.value)}
                       style={{
-                        background: !showCanvas ? 'var(--primary)' : 'transparent',
-                        color: !showCanvas ? 'white' : '#94a3b8',
+                        background: 'rgba(0,0,0,0.2)',
+                        border: '1px solid var(--glass-border)',
+                        color: '#cbd5e1',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        width: '60px',
+                        textAlign: 'center'
+                      }}
+                    />
+                    <button
+                      onClick={handleRefresh}
+                      disabled={docLoading}
+                      style={{
+                        background: 'var(--primary)',
+                        color: 'white',
                         border: 'none',
-                        padding: '0.5rem 1rem',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        fontWeight: 500
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '4px',
+                        cursor: docLoading ? 'not-allowed' : 'pointer',
+                        opacity: docLoading ? 0.7 : 1,
+                        fontSize: '0.8rem'
                       }}
                     >
-                      List View
-                    </button>
-                    <button
-                      onClick={() => setShowCanvas(true)}
-                      style={{
-                        background: showCanvas ? 'var(--primary)' : 'transparent',
-                        color: showCanvas ? 'white' : '#94a3b8',
-                        border: 'none',
-                        padding: '0.5rem 1rem',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        fontWeight: 500,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <span>Canvas</span>
-                      <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.2)', padding: '0 6px', borderRadius: '10px' }}>
-                        {canvasDocuments.length}
-                      </span>
+                      Refresh
                     </button>
                   </div>
                 </div>
 
-                {showCanvas ? (
-                  <Canvas
-                    documents={canvasDocuments}
-                    viewState={canvasView}
-                    onViewStateChange={setCanvasView}
-                    onUpdatePosition={handleUpdateCanvasPosition}
-                    onConnect={handleConnectRequest}
-                    onClone={handleCloneCanvasDocument}
-                    onDelete={handleDeleteCanvasDocument}
-                    onSave={handleOpenSaveModal}
-                    onLoad={handleOpenLoadModal}
-                  />
-                ) : (
-                  <>
-                    <QueryBuilder schema={schema} onRunQuery={handleRunQuery} />
+                {docError && (
+                  <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', marginBottom: '1rem' }}>
+                    {docError}
+                  </div>
+                )}
 
-                    <div style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <span style={{ opacity: 0.5 }}>Documents in</span>
-                      <span style={{ color: 'var(--primary)' }}>{selectedCollection.col}</span>
-                      <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#94a3b8' }}>
-                        {documents.length} results
-                      </span>
-                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Limit:</label>
-                        <input
-                          type="number"
-                          value={limit}
-                          onChange={(e) => setLimit(e.target.value)}
-                          style={{
-                            background: 'rgba(0,0,0,0.2)',
-                            border: '1px solid var(--glass-border)',
-                            color: '#cbd5e1',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '4px',
-                            width: '60px',
-                            textAlign: 'center'
-                          }}
-                        />
+                {docLoading ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                    Loading documents...
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                    {documents.map((doc, idx) => (
+                      <div key={doc._id || idx} style={{
+                        background: 'var(--panel-bg)',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        fontSize: '0.9rem',
+                        overflow: 'auto',
+                        maxHeight: '1000px',
+                        resize: 'both',
+                        minWidth: '300px',
+                        minHeight: '100px',
+                        position: 'relative'
+                      }}>
                         <button
-                          onClick={handleRefresh}
-                          disabled={docLoading}
+                          onClick={() => handleAddToCanvas(doc)}
+                          title="Send to Canvas"
                           style={{
-                            background: 'var(--primary)',
-                            color: 'white',
-                            border: 'none',
-                            padding: '0.25rem 0.75rem',
+                            position: 'absolute',
+                            top: '10px',
+                            right: '10px',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid var(--glass-border)',
+                            color: '#94a3b8',
                             borderRadius: '4px',
-                            cursor: docLoading ? 'not-allowed' : 'pointer',
-                            opacity: docLoading ? 0.7 : 1,
-                            fontSize: '0.8rem'
+                            width: '28px',
+                            height: '28px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            zIndex: 5
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = 'var(--primary)';
+                            e.currentTarget.style.color = 'white';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                            e.currentTarget.style.color = '#94a3b8';
                           }}
                         >
-                          Refresh
+                          ⇱
                         </button>
+                        <DocumentCard data={doc} isRoot={true} />
                       </div>
-                    </div>
-
-                    {docError && (
-                      <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', marginBottom: '1rem' }}>
-                        {docError}
-                      </div>
-                    )}
-
-                    {docLoading ? (
-                      <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-                        Loading documents...
-                      </div>
-                    ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-                        {documents.map((doc, idx) => (
-                          <div key={doc._id || idx} style={{
-                            background: 'var(--panel-bg)',
-                            border: '1px solid var(--glass-border)',
-                            borderRadius: '8px',
-                            padding: '1rem',
-                            fontSize: '0.9rem',
-                            overflow: 'auto',
-                            maxHeight: '1000px',
-                            resize: 'both',
-                            minWidth: '300px',
-                            minHeight: '100px',
-                            position: 'relative'
-                          }}>
-                            <button
-                              onClick={() => handleAddToCanvas(doc)}
-                              title="Send to Canvas"
-                              style={{
-                                position: 'absolute',
-                                top: '10px',
-                                right: '10px',
-                                background: 'rgba(255,255,255,0.05)',
-                                border: '1px solid var(--glass-border)',
-                                color: '#94a3b8',
-                                borderRadius: '4px',
-                                width: '28px',
-                                height: '28px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                zIndex: 5
-                              }}
-                              onMouseEnter={e => {
-                                e.currentTarget.style.background = 'var(--primary)';
-                                e.currentTarget.style.color = 'white';
-                              }}
-                              onMouseLeave={e => {
-                                e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                                e.currentTarget.style.color = '#94a3b8';
-                              }}
-                            >
-                              ⇱
-                            </button>
-                            <DocumentCard data={doc} isRoot={true} />
-                          </div>
-                        ))}
-                        {documents.length === 0 && !docError && (
-                          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: '#64748b', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--glass-border)' }}>
-                            No documents found in this collection.
-                          </div>
-                        )}
+                    ))}
+                    {documents.length === 0 && !docError && (
+                      <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: '#64748b', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--glass-border)' }}>
+                        No documents found in this collection.
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#475569' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '4rem', marginBottom: '1rem', opacity: 0.2 }}>🍃</div>
-                  <h2>Select a collection to view documents</h2>
+                  <h2>Select a collection or open Canvas</h2>
                 </div>
               </div>
             )}

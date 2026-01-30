@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete }) => {
+const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete, onDateClick }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
@@ -156,8 +157,71 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDele
             </div>
 
             <div style={{ flex: 1 }}>
-                <DocumentCard data={doc.data} isRoot={false} onConnect={onConnect} />
+                <DocumentCard data={doc.data} isRoot={false} onConnect={onConnect} onDateClick={onDateClick} />
             </div>
+        </div>
+    );
+};
+
+const DraggableGapNode = ({ node, zoom, onUpdatePosition }) => {
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStart = useRef({ x: 0, y: 0 });
+    const nodeStart = useRef({ x: 0, y: 0 });
+
+    const handleMouseDown = (e) => {
+        e.stopPropagation();
+        if (e.button !== 0) return;
+
+        setIsDragging(true);
+        dragStart.current = { x: e.clientX, y: e.clientY };
+        nodeStart.current = { x: node.x, y: node.y };
+
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const handleMouseMove = (e) => {
+        const dx = (e.clientX - dragStart.current.x) / zoom;
+        const dy = (e.clientY - dragStart.current.y) / zoom;
+        onUpdatePosition(node.id, nodeStart.current.x + dx, nodeStart.current.y + dy);
+    };
+
+    const handleMouseUp = (e) => {
+        setIsDragging(false);
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+
+        // Final update
+        const dx = (e.clientX - dragStart.current.x) / zoom;
+        const dy = (e.clientY - dragStart.current.y) / zoom;
+        onUpdatePosition(node.id, nodeStart.current.x + dx, nodeStart.current.y + dy);
+    };
+
+    return (
+        <div
+            onMouseDown={handleMouseDown}
+            style={{
+                position: 'absolute',
+                left: node.x,
+                top: node.y,
+                transform: 'translate(-50%, -50%)',
+                background: node.text.startsWith('+') ? '#4ade80' : '#f87171',
+                color: '#0f172a',
+                padding: '4px 12px',
+                borderRadius: '6px',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                zIndex: 2000,
+                boxShadow: isDragging ? '0 8px 16px rgba(0,0,0,0.3)' : '0 4px 6px rgba(0,0,0,0.2)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                userSelect: 'none',
+                minWidth: 'max-content'
+            }}
+        >
+            {node.text}
         </div>
     );
 };
@@ -169,6 +233,44 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
     const [isPanning, setIsPanning] = useState(false);
     const canvasRef = useRef(null);
 
+    // Date Gap Logic
+    const [dateSelection, setDateSelection] = useState(null); // { value: Date, ref: HTMLElement }
+    const [gapNodes, setGapNodes] = useState([]); // [{ id, text, x, y, sourceRef, targetRef }]
+
+    const handleDateClick = (dateValue, e) => {
+        const date = new Date(dateValue);
+        const targetRef = e.target; // Capturing the DOM element
+
+        if (!dateSelection) {
+            setDateSelection({ value: date, ref: targetRef });
+        } else {
+            // Calculate difference
+            const text = calculateTimeGap(dateSelection.value, date);
+
+            // Calculate position in Canvas Coordinates
+            // e.clientX is viewport. We need to convert to canvas coords.
+            // Canvas Coords = (ViewportCoords - Pan) / Zoom
+            const canvasX = (e.clientX - pan.x) / zoom;
+            const canvasY = (e.clientY - pan.y) / zoom;
+
+            const newGapNode = {
+                id: `gap-${Date.now()}`,
+                text,
+                x: canvasX,
+                y: canvasY - 50, // slightly above
+                sourceRef: dateSelection.ref,
+                targetRef: targetRef
+            };
+
+            setGapNodes(prev => [...prev, newGapNode]);
+            setDateSelection(null); // Reset
+        }
+    };
+
+    const updateGapNodePosition = (id, x, y) => {
+        setGapNodes(prev => prev.map(node => node.id === id ? { ...node, x, y } : node));
+    };
+
     // Connection Logic
     const nodeRegistry = useRef(new Map()); // Map<id, { type: 'def'|'ref', ref: HTMLElement, value: string }>
     const [lines, setLines] = useState([]);
@@ -176,11 +278,6 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
 
     // Register/Unregister nodes
     const registerNode = (value, type, ref) => {
-        // We use a unique key because multiple refs might verify to same value? 
-        // No, we need to store them by reference actually.
-        // Or generate a unique ID for each node.
-        // Let's use the object reference of the DOM node as key if possible, or just a Symbol.
-        // But map keys can be objects.
         if (!ref) return;
         nodeRegistry.current.set(ref, { value, type, ref });
     };
@@ -197,7 +294,7 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
             const newLines = [];
             const nodes = Array.from(nodeRegistry.current.values());
 
-            // Group by value
+            // 1. Regular Document Connections
             const grouped = {};
             nodes.forEach(node => {
                 if (!grouped[node.value]) grouped[node.value] = { defs: [], refs: [] };
@@ -205,46 +302,93 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                 else grouped[node.value].refs.push(node);
             });
 
-            // Calculate connections
-            // Strategy: Connect every Ref to every Def? Or just nearest?
-            // For now, simple: Connect all Refs to the first Def found? 
-            // Or if multiple Defs (duplicates), maybe connect to nearest?
-            // Let's just connect to ALL Defs for now to be distinct.
-
             if (canvasRef.current) {
                 const canvasRect = canvasRef.current.getBoundingClientRect();
+
+                // Helper to get Canvas Coords from Rect
+                const getCanvasCoords = (rect) => ({
+                    x: (rect.left - canvasRect.left + rect.width / 2),
+                    y: (rect.top - canvasRect.top + rect.height / 2)
+                });
 
                 Object.values(grouped).forEach(({ defs, refs }) => {
                     if (defs.length === 0 || refs.length === 0) return;
 
                     refs.forEach(refNode => {
                         const refRect = refNode.ref.getBoundingClientRect();
+                        if (refRect.width === 0) return; // Hidden/Detached
 
                         defs.forEach(defNode => {
                             const defRect = defNode.ref.getBoundingClientRect();
+                            if (defRect.width === 0) return;
 
-                            // Check if elements are visible/attached
-                            if (refRect.width === 0 || defRect.width === 0) return;
-
-                            // Calculate centers relative to canvas container
-                            const start = {
-                                x: refRect.left - canvasRect.left + refRect.width / 2,
-                                y: refRect.top - canvasRect.top + refRect.height / 2
-                            };
-                            const end = {
-                                x: defRect.left - canvasRect.left + defRect.width / 2,
-                                y: defRect.top - canvasRect.top + defRect.height / 2
-                            };
+                            const start = getCanvasCoords(refRect);
+                            const end = getCanvasCoords(defRect);
 
                             newLines.push({
-                                id: `${nodeRegistry.current.get(refNode.ref)?.value}-${Math.random()}`,
+                                id: `${nodeRegistry.current.get(refNode.ref)?.value} -${Math.random()} `,
                                 x1: start.x,
                                 y1: start.y,
                                 x2: end.x,
-                                y2: end.y
+                                y2: end.y,
+                                color: '#fbbf24'
                             });
                         });
                     });
+                });
+
+                // 2. Gap Node Connections
+                gapNodes.forEach(node => {
+                    // Start -> GapNode
+                    if (node.sourceRef && node.sourceRef.isConnected) {
+                        const sourceRect = node.sourceRef.getBoundingClientRect();
+                        const sourcePos = getCanvasCoords(sourceRect);
+
+                        // We need gapNode position in Viewport coords relative to canvas container,
+                        // BUT our lines are drawn in a layer that matches the content container transform? 
+                        // Wait, the SVG layer in previous implementation was 'Viewport coordinate space' (not transformed by pan/zoom?)
+                        // Let's check the SVG definition below.
+                        // SVG style: top:0, left:0, width:100%, height:100%.
+                        // The lines in previous code used: refRect.left - canvasRect.left.
+                        // This calculates position relative to the Canvas DIV.
+                        // The Canvas DIV acts as the viewport.
+                        // The SVG is inside the Canvas DIV, unscaled.
+                        // So the lines are drawn in "Screen/Container Pixels".
+
+                        // BUT, gapNode.x/y are in "World/Zoomed Coordinates".
+                        // So we must project gapNode.x/y to Screen Coords for the line drawing if lines are unscaled.
+
+                        // Projection: Screen = World * Zoom + Pan
+                        const gapScreenX = node.x * zoom + pan.x;
+                        const gapScreenY = node.y * zoom + pan.y;
+
+                        newLines.push({
+                            id: `${node.id} -source`,
+                            x1: sourcePos.x,
+                            y1: sourcePos.y,
+                            x2: gapScreenX,
+                            y2: gapScreenY,
+                            color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                        });
+                    }
+
+                    // GapNode -> Target
+                    if (node.targetRef && node.targetRef.isConnected) {
+                        const targetRect = node.targetRef.getBoundingClientRect();
+                        const targetPos = getCanvasCoords(targetRect);
+
+                        const gapScreenX = node.x * zoom + pan.x;
+                        const gapScreenY = node.y * zoom + pan.y;
+
+                        newLines.push({
+                            id: `${node.id} -target`,
+                            x1: gapScreenX,
+                            y1: gapScreenY,
+                            x2: targetPos.x,
+                            y2: targetPos.y,
+                            color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                        });
+                    }
                 });
             }
 
@@ -254,8 +398,7 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [documents, pan, zoom]); // Re-start loop if these change? Actually loop should just run always.
-    // Dependencies: empty [] means run once. But we access `nodeRegistry` ref which is mutable. UseEffect is fine.
+    }, [documents, pan, zoom, gapNodes]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -333,8 +476,8 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                 right: 0,
                 bottom: 0,
                 background: 'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0)',
-                backgroundSize: `${20 * zoom}px ${20 * zoom}px`, // Scale grid
-                backgroundPosition: `${pan.x}px ${pan.y}px`,    // Move grid
+                backgroundSize: `${20 * zoom}px ${20 * zoom} px`, // Scale grid
+                backgroundPosition: `${pan.x}px ${pan.y} px`,    // Move grid
                 pointerEvents: 'none'
             }} />
 
@@ -352,10 +495,7 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                         {documents.length === 0 && (
                             <div style={{
                                 position: 'absolute',
-                                // We want this centered in the viewport, so we need to counter-act the transform
-                                // Or just put it outside the transform container. 
-                                // Putting it here means it moves with the canvas, which is consistent.
-                                left: (window.innerWidth / 2 - pan.x) / zoom, // rough centering logic
+                                left: (window.innerWidth / 2 - pan.x) / zoom,
                                 top: (window.innerHeight / 2 - pan.y) / zoom,
                                 transform: 'translate(-50%, -50%)',
                                 textAlign: 'center',
@@ -377,13 +517,23 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                                 onConnect={onConnect}
                                 onClone={onClone}
                                 onDelete={onDelete}
+                                onDateClick={handleDateClick}
+                            />
+                        ))}
+
+                        {gapNodes.map(node => (
+                            <DraggableGapNode
+                                key={node.id}
+                                node={node}
+                                zoom={zoom}
+                                onUpdatePosition={updateGapNodePosition}
                             />
                         ))}
                     </ConnectionContext.Provider>
                 </div>
             </div>
 
-            {/* Connection Lines Layer (Viewport coordinate space) */}
+            {/* Connection Lines Layer */}
             <svg style={{
                 position: 'absolute',
                 top: 0,
@@ -391,12 +541,13 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                 width: '100%',
                 height: '100%',
                 pointerEvents: 'none',
-                zIndex: 5 // Below cards (cards are z-index 10 or 1000)
+                zIndex: 5
             }}>
                 <defs>
                     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                         <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" opacity="0.5" />
                     </marker>
+                    {/* Separate markers for gaps maybe or just use colored lines? */}
                 </defs>
                 {lines.map((line, i) => (
                     <line
@@ -405,13 +556,33 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                         y1={line.y1}
                         x2={line.x2}
                         y2={line.y2}
-                        stroke="#fbbf24"
+                        stroke={line.color || "#fbbf24"}
                         strokeWidth="2"
-                        strokeOpacity="0.4"
-                        markerEnd="url(#arrowhead)"
+                        strokeOpacity="0.6"
+                        markerEnd="url(#arrowhead)" // Reusing same arrowhead for now, might need colored ones later
                     />
                 ))}
             </svg>
+
+            {/* Date Selection Indicators */}
+            {dateSelection && (
+                <div style={{
+                    position: 'fixed',
+                    left: dateSelection.ref.getBoundingClientRect().left + dateSelection.ref.getBoundingClientRect().width / 2,
+                    top: dateSelection.ref.getBoundingClientRect().top - 25,
+                    background: 'var(--primary)',
+                    color: 'white',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    pointerEvents: 'none',
+                    zIndex: 2000,
+                    transform: 'translate(-50%, 0)',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                }}>
+                    Start Date
+                </div>
+            )}
 
 
             {/* HUD / Controls */}
@@ -452,6 +623,69 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
             </div>
         </div>
     );
+};
+
+const calculateTimeGap = (startDate, endDate) => {
+    let start = new Date(startDate);
+    let end = new Date(endDate);
+    let sign = '+';
+
+    if (start > end) {
+        sign = '-';
+        [start, end] = [end, start];
+    }
+
+    // Clone start simple
+    let temp = new Date(start);
+
+    let years = 0;
+    while (true) {
+        let test = new Date(temp);
+        test.setFullYear(test.getFullYear() + 1);
+        if (test > end) break;
+        temp = test;
+        years++;
+    }
+
+    let months = 0;
+    while (true) {
+        let test = new Date(temp);
+        test.setMonth(test.getMonth() + 1);
+        // Handle month overflow (e.g. Jan 31 + 1 mo -> Mar 3. We want last day of Feb)
+        if (test.getDate() !== temp.getDate()) {
+            test.setDate(0);
+        }
+
+        if (test > end) break;
+        temp = test;
+        months++;
+    }
+
+    let days = 0;
+    while (true) {
+        let test = new Date(temp);
+        test.setDate(test.getDate() + 1);
+        if (test > end) break;
+        temp = test;
+        days++;
+    }
+
+    let diffMs = end - temp;
+    let hours = Math.floor(diffMs / (1000 * 60 * 60));
+    diffMs -= hours * 1000 * 60 * 60;
+    let minutes = Math.floor(diffMs / (1000 * 60));
+    diffMs -= minutes * 1000 * 60;
+    let seconds = Math.floor(diffMs / 1000);
+
+    const parts = [];
+    if (years > 0) parts.push(`${years}y`);
+    if (months > 0) parts.push(`${months}m`);
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+
+    return `${sign} ${parts.join(' ')}`;
 };
 
 export default Canvas;
