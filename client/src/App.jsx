@@ -164,8 +164,22 @@ function App() {
         expandedPaths: []
       }];
     });
-    // Optional: Flash a notification or something?
   }, [selectedCollection]);
+
+  const handleAddCustomDocument = useCallback((data, x, y) => {
+    const newId = data._id || `custom-${Math.random().toString(36).substr(2, 9)}`;
+    setCanvasDocuments(prev => {
+      if (prev.find(d => d._id === newId)) return prev;
+      return [...prev, {
+        _id: newId,
+        data: { ...data, _id: newId },
+        collection: 'Custom',
+        x: x,
+        y: y,
+        expandedPaths: []
+      }];
+    });
+  }, []);
 
   const handleUpdateGapNodePosition = useCallback((id, x, y) => {
     setGapNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
@@ -193,6 +207,12 @@ function App() {
       }
       return d;
     }));
+    setGapNodes(prev => prev.map(n => {
+      if (updates[n.id]) {
+        return { ...n, x: updates[n.id].x, y: updates[n.id].y };
+      }
+      return n;
+    }));
   };
 
   const handleCloneCanvasDocument = (id) => {
@@ -217,6 +237,7 @@ function App() {
   const handleDeleteCanvasDocuments = (ids) => {
     const idsSet = new Set(ids);
     setCanvasDocuments(prev => prev.filter(d => !idsSet.has(d._id)));
+    setGapNodes(prev => prev.filter(n => !idsSet.has(n.id)));
   };
 
 
@@ -676,6 +697,7 @@ function App() {
                 currentSaveName={currentSaveName}
                 onToggleExpand={handleToggleExpand}
                 onToggleBackdrop={handleToggleBackdrop}
+                onAddCustomDocument={handleAddCustomDocument}
                 markedSources={markedSources}
                 onMarkedSourcesChange={setMarkedSources}
                 highlightedFields={highlightedFields}

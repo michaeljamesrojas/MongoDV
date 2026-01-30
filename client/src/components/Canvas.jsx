@@ -567,6 +567,7 @@ const Canvas = ({
     arrowDirection = 'forward',
     onArrowDirectionChange,
     onToggleBackdrop,
+    onAddCustomDocument,
     idColorOverrides = {},
     onIdColorChange
 }) => {
@@ -586,6 +587,9 @@ const Canvas = ({
     const [backdropToggleMode, setBackdropToggleMode] = useState(false);
     const [canvasContextMenu, setCanvasContextMenu] = useState(null); // { x, y } for canvas right-click menu
     const [backdropMouseDown, setBackdropMouseDown] = useState(false); // Track if mouse is held down in backdrop mode
+
+    // Custom document creation state
+    const [pendingCustomCard, setPendingCustomCard] = useState(null); // { x, y, data: string }
 
     // Memoized Map of documents for efficient lookup by ID
     const docMap = useMemo(() => {
@@ -1133,6 +1137,85 @@ const Canvas = ({
                                 />
                             );
                         })}
+
+                        {pendingCustomCard && (
+                            <div style={{
+                                position: 'absolute',
+                                left: pendingCustomCard.x,
+                                top: pendingCustomCard.y,
+                                zIndex: 1000,
+                                background: 'var(--panel-bg)',
+                                borderRadius: '8px',
+                                border: '2px solid var(--primary)',
+                                padding: '1rem',
+                                width: '350px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                                pointerEvents: 'auto'
+                            }}>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, marginBottom: '4px' }}>
+                                    NEW CUSTOM DOCUMENT
+                                </div>
+                                <textarea
+                                    autoFocus
+                                    value={pendingCustomCard.data}
+                                    onChange={(e) => setPendingCustomCard({ ...pendingCustomCard, data: e.target.value })}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') setPendingCustomCard(null);
+                                        // Prevents panned/zoomed canvas from taking keyboard events while typing
+                                        e.stopPropagation();
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        height: '200px',
+                                        background: 'rgba(0,0,0,0.2)',
+                                        border: '1px solid var(--glass-border)',
+                                        borderRadius: '4px',
+                                        color: '#e2e8f0',
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.85rem',
+                                        padding: '8px',
+                                        outline: 'none',
+                                        resize: 'vertical'
+                                    }}
+                                />
+                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                    <button
+                                        onClick={() => setPendingCustomCard(null)}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: 'rgba(255,255,255,0.05)',
+                                            border: '1px solid var(--glass-border)',
+                                            borderRadius: '4px',
+                                            color: '#94a3b8',
+                                            cursor: 'pointer'
+                                        }}
+                                    >Cancel</button>
+                                    <button
+                                        onClick={() => {
+                                            try {
+                                                const parsed = JSON.parse(pendingCustomCard.data);
+                                                onAddCustomDocument && onAddCustomDocument(parsed, pendingCustomCard.x, pendingCustomCard.y);
+                                                setPendingCustomCard(null);
+                                            } catch (err) {
+                                                alert("Invalid JSON: " + err.message);
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: 'var(--primary)',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontWeight: 600
+                                        }}
+                                    >Create</button>
+                                </div>
+                            </div>
+                        )}
                     </ConnectionContext.Provider>
                 </div>
             </div>
@@ -1353,6 +1436,38 @@ const Canvas = ({
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                         👁 Toggle Backdrop
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const canvasRect = canvasRef.current.getBoundingClientRect();
+                            const x = (canvasContextMenu.x - canvasRect.left - pan.x) / zoom;
+                            const y = (canvasContextMenu.y - canvasRect.top - pan.y) / zoom;
+                            setPendingCustomCard({
+                                x,
+                                y,
+                                data: JSON.stringify({ _id: `custom_${Math.random().toString(36).substr(2, 5)}` }, null, 2)
+                            });
+                            setCanvasContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        📝 Custom Document
                     </button>
                 </div>
             )}
