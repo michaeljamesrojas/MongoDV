@@ -39,3 +39,16 @@ export const listCollections = async (uri, dbName) => {
     }
     return response.json();
 };
+
+export const fetchDocuments = async (uri, dbName, colName, limit = 20) => {
+    const response = await fetch(`${API_BASE}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri, dbName, colName, limit }),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch documents');
+    }
+    return response.json();
+};

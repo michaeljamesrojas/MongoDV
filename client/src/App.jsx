@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { connectToMongo, listDatabases, listCollections } from './api';
+import { connectToMongo, listDatabases, listCollections, fetchDocuments } from './api';
 import './index.css';
 
 function App() {
@@ -12,6 +12,11 @@ function App() {
   const [error, setError] = useState(null);
   const [expandedDb, setExpandedDb] = useState(null);
   const [collections, setCollections] = useState({});
+  const [selectedCollection, setSelectedCollection] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [docLoading, setDocLoading] = useState(false);
+  const [docError, setDocError] = useState(null);
+  const [limit, setLimit] = useState(20);
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -36,6 +41,7 @@ function App() {
     }
 
     setExpandedDb(dbName);
+    setSelectedCollection(null); // Reset selection when switching DBs
 
     if (!collections[dbName]) {
       try {
@@ -44,6 +50,35 @@ function App() {
       } catch (err) {
         console.error("Failed to fetch collections:", err);
       }
+    }
+  };
+
+  const fetchCollectionDocuments = async (dbName, colName, currentLimit) => {
+    setDocLoading(true);
+    setDocError(null);
+    setDocuments([]);
+    try {
+      const data = await fetchDocuments(uri, dbName, colName, currentLimit);
+      setDocuments(data.documents);
+    } catch (err) {
+      setDocError(err.message);
+    } finally {
+      setDocLoading(false);
+    }
+  };
+
+  const handleCollectionClick = async (dbName, colName) => {
+    setSelectedCollection({ db: dbName, col: colName });
+    // Reset limit to default 20 when switching collections, or keep it? 
+    // Let's keep it for now as it might be annoying to reset if user wants to browse with high limit.
+    // Actually default to 20 is safer for performance.
+    setLimit(20);
+    await fetchCollectionDocuments(dbName, colName, 20);
+  };
+
+  const handleRefresh = () => {
+    if (selectedCollection) {
+      fetchCollectionDocuments(selectedCollection.db, selectedCollection.col, limit);
     }
   };
 
@@ -122,12 +157,24 @@ function App() {
                       <div key={col.name} style={{
                         padding: '0.5rem',
                         fontSize: '0.9rem',
-                        color: '#cbd5e1',
+                        color: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'var(--primary)' : '#cbd5e1',
                         cursor: 'pointer',
-                        borderRadius: '4px'
+                        borderRadius: '4px',
+                        background: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'rgba(96, 165, 250, 0.1)' : 'transparent',
+                        fontWeight: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 500 : 400
                       }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCollectionClick(db.name, col.name);
+                        }}
+                        onMouseEnter={(e) => {
+                          if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
+                            e.currentTarget.style.background = 'transparent'
+                        }}
                       >
                         📄 {col.name}
                       </div>
@@ -234,11 +281,93 @@ function App() {
       {isConnected ? (
         <>
           <Sidebar />
-          <div style={{ flex: 1, padding: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '4rem', marginBottom: '1rem', opacity: 0.2 }}>🍃</div>
-              <h2>Select a database to view details</h2>
-            </div>
+          <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
+            {selectedCollection ? (
+              <div>
+                <h2 style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span style={{ opacity: 0.5 }}>Documents in</span>
+                  <span style={{ color: 'var(--primary)' }}>{selectedCollection.col}</span>
+                  <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#94a3b8' }}>
+                    {documents.length} results
+                  </span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Limit:</label>
+                    <input
+                      type="number"
+                      value={limit}
+                      onChange={(e) => setLimit(e.target.value)}
+                      style={{
+                        background: 'rgba(0,0,0,0.2)',
+                        border: '1px solid var(--glass-border)',
+                        color: '#cbd5e1',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        width: '60px',
+                        textAlign: 'center'
+                      }}
+                    />
+                    <button
+                      onClick={handleRefresh}
+                      disabled={docLoading}
+                      style={{
+                        background: 'var(--primary)',
+                        color: 'white',
+                        border: 'none',
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '4px',
+                        cursor: docLoading ? 'not-allowed' : 'pointer',
+                        opacity: docLoading ? 0.7 : 1,
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                </h2>
+
+                {docError && (
+                  <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', marginBottom: '1rem' }}>
+                    {docError}
+                  </div>
+                )}
+
+                {docLoading ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                    Loading documents...
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                    {documents.map((doc, idx) => (
+                      <div key={doc._id || idx} style={{
+                        background: 'var(--panel-bg)',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        fontSize: '0.9rem',
+                        overflow: 'auto',
+                        maxHeight: '300px'
+                      }}>
+                        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#cbd5e1', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                          {JSON.stringify(doc, null, 2)}
+                        </pre>
+                      </div>
+                    ))}
+                    {documents.length === 0 && !docError && (
+                      <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: '#64748b', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--glass-border)' }}>
+                        No documents found in this collection.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#475569' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '4rem', marginBottom: '1rem', opacity: 0.2 }}>🍃</div>
+                  <h2>Select a collection to view documents</h2>
+                </div>
+              </div>
+            )}
           </div>
         </>
       ) : (

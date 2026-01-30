@@ -77,6 +77,26 @@ app.post('/api/collections', async (req, res) => {
     }
 });
 
+app.post('/api/documents', async (req, res) => {
+    const { uri, dbName, colName, limit = 20 } = req.body;
+    if (!uri || !dbName || !colName) {
+        return res.status(400).json({ error: 'Connection string, database name, and collection name are required' });
+    }
+
+    try {
+        const documents = await withClient(uri, async (client) => {
+            const db = client.db(dbName);
+            const collection = db.collection(colName);
+            const docs = await collection.find({}).limit(parseInt(limit)).toArray();
+            return docs;
+        });
+        res.json({ documents });
+    } catch (error) {
+        console.error('Fetch documents error:', error);
+        res.status(500).json({ error: 'Failed to fetch documents: ' + error.message });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
