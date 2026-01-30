@@ -1,7 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const isObjectId = (value) => {
-    // Simple check for 24-character hex string which is the standard representation of ObjectId in JSON
     return typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
 };
 
@@ -27,12 +26,8 @@ const ValueDisplay = ({ value }) => {
         if (isObjectId(value)) {
             return (
                 <span style={{
-                    background: 'rgba(245, 158, 11, 0.15)',
                     color: '#fbbf24',
-                    padding: '0 4px',
-                    borderRadius: '4px',
                     fontFamily: 'monospace',
-                    border: '1px solid rgba(245, 158, 11, 0.3)'
                 }}>
                     {value}
                 </span>
@@ -47,16 +42,57 @@ const ValueDisplay = ({ value }) => {
     return <span style={{ color: '#cbd5e1' }}>{String(value)}</span>;
 };
 
+const CollapsibleField = ({ label, children, typeLabel, initialOpen = false }) => {
+    const [isOpen, setIsOpen] = useState(initialOpen);
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    fontSize: '0.85rem',
+                    color: '#94a3b8',
+                    padding: '2px 0',
+                    gap: '4px'
+                }}
+            >
+                <span style={{ fontSize: '0.7rem', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.1s' }}>▶</span>
+                <span style={{ fontWeight: 600, color: label === '_id' ? 'var(--primary)' : '#cbd5e1' }}>{label}:</span>
+                <span style={{ opacity: 0.5, fontSize: '0.75rem' }}>{typeLabel}</span>
+            </div>
+            {isOpen && (
+                <div style={{ paddingLeft: '12px', borderLeft: '1px solid rgba(255,255,255,0.05)', marginLeft: '3px' }}>
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const DocumentCard = ({ data, isRoot = false }) => {
+    // Array Handling
     if (Array.isArray(data)) {
-        if (data.length === 0) return <span style={{ color: '#94a3b8' }}>[]</span>;
+        if (data.length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>[]</span>;
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: isRoot ? 0 : '1rem', borderLeft: isRoot ? 'none' : '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 {data.map((item, index) => (
-                    <div key={index} style={{ display: 'flex', gap: '0.5rem' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.8rem', minWidth: '20px' }}>{index}:</span>
-                        <div>
-                            {typeof item === 'object' && item !== null ? <DocumentCard data={item} /> : <ValueDisplay value={item} />}
+                    <div key={index} style={{ display: 'flex', gap: '4px', alignItems: 'flex-start' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.8rem', minWidth: '15px' }}>{index}:</span>
+                        <div style={{ flex: 1 }}>
+                            {typeof item === 'object' && item !== null ? (
+                                <CollapsibleField
+                                    label={index}
+                                    typeLabel={Array.isArray(item) ? `Array[${item.length}]` : `Object{${Object.keys(item).length}}`}
+                                >
+                                    <DocumentCard data={item} />
+                                </CollapsibleField>
+                            ) : (
+                                <ValueDisplay value={item} />
+                            )}
                         </div>
                     </div>
                 ))}
@@ -64,46 +100,38 @@ const DocumentCard = ({ data, isRoot = false }) => {
         );
     }
 
+    // Object Handling
     if (typeof data === 'object' && data !== null) {
-        if (Object.keys(data).length === 0) return <span style={{ color: '#94a3b8' }}>{"{}"}</span>;
+        if (Object.keys(data).length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{"{}"}</span>;
 
         return (
-            <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '0.5rem',
-                alignItems: 'flex-start'
-            }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '100%' }}>
                 {Object.entries(data).map(([key, value]) => {
                     const isComplex = typeof value === 'object' && value !== null;
+
+                    if (isComplex) {
+                        const typeCount = Array.isArray(value) ? `[${value.length}]` : `{${Object.keys(value).length}}`;
+                        return (
+                            <CollapsibleField
+                                key={key}
+                                label={key}
+                                typeLabel={typeCount}
+                                initialOpen={false}
+                            >
+                                <DocumentCard data={value} />
+                            </CollapsibleField>
+                        );
+                    }
+
                     return (
-                        <div key={key} style={{
-                            background: isComplex ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)',
-                            border: '1px solid var(--glass-border)',
-                            borderRadius: '6px',
-                            padding: '0.5rem',
-                            display: isComplex ? 'block' : 'flex',
-                            alignItems: isComplex ? 'stretch' : 'center',
-                            gap: '0.5rem',
-                            width: isComplex ? '100%' : 'auto',
-                            maxWidth: isComplex ? '100%' : 'fit-content'
-                        }}>
+                        <div key={key} style={{ display: 'flex', gap: '6px', alignItems: 'baseline', padding: '1px 0' }}>
                             <span style={{
                                 fontWeight: 600,
                                 color: key === '_id' ? 'var(--primary)' : '#94a3b8',
                                 fontSize: '0.85rem',
-                                marginRight: isComplex ? 0 : '0.25rem',
-                                marginBottom: isComplex ? '0.5rem' : 0,
-                                display: isComplex ? 'block' : 'inline'
+                                whiteSpace: 'nowrap'
                             }}>{key}:</span>
-
-                            {isComplex ? (
-                                <div style={{ marginTop: '0.25rem' }}>
-                                    <DocumentCard data={value} />
-                                </div>
-                            ) : (
-                                <ValueDisplay value={value} />
-                            )}
+                            <ValueDisplay value={value} />
                         </div>
                     );
                 })}

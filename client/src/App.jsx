@@ -20,6 +20,7 @@ function App() {
   const [limit, setLimit] = useState(20);
   const [schemaKeys, setSchemaKeys] = useState([]);
   const [queryFilters, setQueryFilters] = useState([]); // Array of { field, operator, value }
+  const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -45,6 +46,7 @@ function App() {
 
     setExpandedDb(dbName);
     setSelectedCollection(null); // Reset selection when switching DBs
+    setCollectionSearchTerm(''); // Reset search term
 
     if (!collections[dbName]) {
       try {
@@ -54,6 +56,13 @@ function App() {
         console.error("Failed to fetch collections:", err);
       }
     }
+  };
+
+  const getFilteredCollections = (dbName) => {
+    if (!collections[dbName]) return [];
+    return collections[dbName]
+      .filter(col => col.name.toLowerCase().includes(collectionSearchTerm.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name));
   };
 
   const fetchCollectionDocuments = async (dbName, colName, currentLimit) => {
@@ -230,32 +239,52 @@ function App() {
                   marginBottom: '0.5rem'
                 }}>
                   {collections[db.name] ? (
-                    collections[db.name].map(col => (
-                      <div key={col.name} style={{
-                        padding: '0.5rem',
-                        fontSize: '0.9rem',
-                        color: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'var(--primary)' : '#cbd5e1',
-                        cursor: 'pointer',
-                        borderRadius: '4px',
-                        background: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'rgba(96, 165, 250, 0.1)' : 'transparent',
-                        fontWeight: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 500 : 400
-                      }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCollectionClick(db.name, col.name);
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Search collections..."
+                        value={collectionSearchTerm}
+                        onChange={(e) => setCollectionSearchTerm(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem',
+                          marginBottom: '0.5rem',
+                          background: 'rgba(0,0,0,0.2)',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '4px',
+                          color: '#e2e8f0',
+                          fontSize: '0.8rem',
+                          outline: 'none'
                         }}
-                        onMouseEnter={(e) => {
-                          if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                      />
+                      {getFilteredCollections(db.name).map(col => (
+                        <div key={col.name} style={{
+                          padding: '0.5rem',
+                          fontSize: '0.9rem',
+                          color: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'var(--primary)' : '#cbd5e1',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          background: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'rgba(96, 165, 250, 0.1)' : 'transparent',
+                          fontWeight: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 500 : 400
                         }}
-                        onMouseLeave={(e) => {
-                          if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
-                            e.currentTarget.style.background = 'transparent'
-                        }}
-                      >
-                        📄 {col.name}
-                      </div>
-                    ))
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCollectionClick(db.name, col.name);
+                          }}
+                          onMouseEnter={(e) => {
+                            if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                          }}
+                          onMouseLeave={(e) => {
+                            if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
+                              e.currentTarget.style.background = 'transparent'
+                          }}
+                        >
+                          📄 {col.name}
+                        </div>
+                      ))}
+                    </>
                   ) : (
                     <div style={{ padding: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
                       Loading collections...
@@ -490,7 +519,10 @@ function App() {
                         padding: '1rem',
                         fontSize: '0.9rem',
                         overflow: 'auto',
-                        maxHeight: '400px'
+                        maxHeight: '1000px',
+                        resize: 'both',
+                        minWidth: '300px',
+                        minHeight: '100px'
                       }}>
                         <DocumentCard data={doc} isRoot={true} />
                       </div>
