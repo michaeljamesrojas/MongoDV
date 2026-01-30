@@ -4,7 +4,15 @@ import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef }) => {
+const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents }) => {
+    // Track dimmed document IDs for line dimming
+    const dimmedDocIds = useMemo(() => {
+        const set = new Set();
+        documents.forEach(doc => {
+            if (doc.dimmed) set.add(doc._id);
+        });
+        return set;
+    }, [documents]);
     const [lines, setLines] = useState([]);
     const frameRef = useRef();
 
@@ -33,6 +41,18 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                 else grouped[node.value].refs.push(node);
             });
 
+            // Helper to check if a node's parent card is dimmed
+            const isNodeDimmed = (nodeRef) => {
+                const cardEl = nodeRef.closest('[data-draggable-card]');
+                if (!cardEl) return false;
+                // Find the doc ID from the card - we check document IDs from our dimmedDocIds set
+                for (const doc of documents) {
+                    const docCard = document.querySelector(`[data-draggable-card][data-doc-id="${doc._id}"]`);
+                    if (docCard === cardEl && doc.dimmed) return true;
+                }
+                return false;
+            };
+
             if (canvasRef.current) {
                 const canvasRect = canvasRef.current.getBoundingClientRect();
 
@@ -59,13 +79,17 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                             // Determine start/end based on direction
                             const isReverse = arrowDirection === 'reverse';
 
+                            // Check if either connected node is dimmed
+                            const isDimmed = isNodeDimmed(refNode.ref) || isNodeDimmed(defNode.ref);
+
                             newLines.push({
                                 id: `${nodeRegistry.current.get(refNode.ref)?.value}-${refNode.value}-${defNode.value}`, // More stable ID structure could help but index is ok for now
                                 x1: isReverse ? end.x : start.x,
                                 y1: isReverse ? end.y : start.y,
                                 x2: isReverse ? start.x : end.x,
                                 y2: isReverse ? start.y : end.y,
-                                color: '#fbbf24'
+                                color: '#fbbf24',
+                                dimmed: isDimmed
                             });
                         });
                     });
@@ -124,7 +148,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef]);
+    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds]);
 
     return (
         <svg style={{
@@ -150,8 +174,9 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                     y2={line.y2}
                     stroke={line.color || "#fbbf24"}
                     strokeWidth="2"
-                    strokeOpacity="0.6"
+                    strokeOpacity={line.dimmed ? 0.1 : 0.6}
                     markerEnd="url(#arrowhead)"
+                    style={{ transition: 'stroke-opacity 0.2s' }}
                 />
             ))}
         </svg>
@@ -192,6 +217,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
         <div
             ref={cardRef}
             data-draggable-card
+            data-doc-id={doc._id}
             style={{
                 position: 'absolute',
                 left: currentX,
@@ -264,6 +290,26 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
                 </div>
 
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <button
+                        title="Toggle Backdrop"
+                        onClick={(e) => { e.stopPropagation(); onToggleBackdrop && onToggleBackdrop(doc._id); }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: isDimmed ? 'var(--primary)' : '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'color 0.2s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                        onMouseLeave={e => e.currentTarget.style.color = isDimmed ? 'var(--primary)' : '#94a3b8'}
+                    >
+                        <span style={{ fontSize: '0.9rem' }}>👁</span>
+                    </button>
                     <button
                         title="Clone"
                         onClick={(e) => { e.stopPropagation(); onClone && onClone(doc._id); }}
@@ -990,6 +1036,7 @@ const Canvas = ({
                 zoom={zoom}
                 pan={pan}
                 canvasRef={canvasRef}
+                documents={documents}
             />
 
             {/* Date Selection Indicators */}
