@@ -407,7 +407,9 @@ const Canvas = ({
     markedSources = new Set(),
     onMarkedSourcesChange,
     highlightedFields = new Set(),
-    onHighlightedFieldsChange
+    onHighlightedFieldsChange,
+    hoistedFields = new Set(),
+    onHoistedFieldsChange
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
@@ -474,6 +476,22 @@ const Canvas = ({
         }
         setContextMenu(null);
     }, [onHighlightedFieldsChange]);
+
+    const toggleHoist = useMemo(() => (collection, path) => {
+        const key = `${collection}:${path}`;
+        if (onHoistedFieldsChange) {
+            onHoistedFieldsChange(prev => {
+                const next = new Set(prev);
+                if (next.has(key)) {
+                    next.delete(key);
+                } else {
+                    next.add(key);
+                }
+                return next;
+            });
+        }
+        setContextMenu(null);
+    }, [onHoistedFieldsChange]);
 
     const handleContextMenu = useMemo(() => (e, docId, path, collection) => {
         e.preventDefault();
@@ -568,8 +586,10 @@ const Canvas = ({
         toggleMarkAsSource,
         highlightedFields,
         toggleHighlight,
+        hoistedFields,
+        toggleHoist,
         onContextMenu: handleContextMenu
-    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, highlightedFields, toggleHighlight, handleContextMenu]);
+    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, highlightedFields, toggleHighlight, hoistedFields, toggleHoist, handleContextMenu]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -984,6 +1004,29 @@ const Canvas = ({
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                         {highlightedFields.has(`${contextMenu.collection}:${contextMenu.path}`) ? '✗ Remove Highlight' : '★ Highlight Key-Value'}
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleHoist(contextMenu.collection, contextMenu.path);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        {hoistedFields.has(`${contextMenu.collection}:${contextMenu.path}`) ? '↓ Unhoist' : '📌 Hoist to Top'}
                     </button>
                 </div>
             )}

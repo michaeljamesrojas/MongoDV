@@ -216,9 +216,23 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
     if (typeof data === 'object' && data !== null) {
         if (Object.keys(data).length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{"{}"}</span>;
 
+        // Get hoistedFields from context
+        const { hoistedFields } = useConnection();
+
+        // Sort entries so hoisted fields come first
+        const sortedEntries = Object.entries(data).sort(([keyA], [keyB]) => {
+            const pathA = `${path ? path + '.' : ''}${keyA}`;
+            const pathB = `${path ? path + '.' : ''}${keyB}`;
+            const aHoisted = hoistedFields && collection && hoistedFields.has(`${collection}:${pathA}`);
+            const bHoisted = hoistedFields && collection && hoistedFields.has(`${collection}:${pathB}`);
+            if (aHoisted && !bHoisted) return -1;
+            if (!aHoisted && bHoisted) return 1;
+            return 0;
+        });
+
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '100%' }}>
-                {Object.entries(data).map(([key, value]) => {
+                {sortedEntries.map(([key, value]) => {
                     const isComplex = typeof value === 'object' && value !== null;
                     const nextPath = `${path ? path + '.' : ''}${key}`;
 
@@ -247,9 +261,10 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                         );
                     }
 
-                    const { onContextMenu, markedSources, highlightedFields } = useConnection();
+                    const { onContextMenu, markedSources, highlightedFields, hoistedFields: contextHoistedFields } = useConnection();
                     const isMarked = markedSources && collection && markedSources.has(`${collection}:${nextPath}`);
                     const isHighlighted = highlightedFields && collection && highlightedFields.has(`${collection}:${nextPath}`);
+                    const isHoisted = contextHoistedFields && collection && contextHoistedFields.has(`${collection}:${nextPath}`);
 
                     return (
                         <div key={key} style={{
@@ -283,7 +298,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                     borderRadius: isMarked ? '3px' : '0',
                                     border: isMarked ? '1px solid rgba(251, 191, 36, 0.4)' : 'none'
                                 }}
-                            >{key}:</span>
+                            >{isHoisted && <span style={{ marginRight: '4px' }}>📌</span>}{key}:</span>
                             <ValueDisplay
                                 value={value}
                                 onConnect={onConnect}
