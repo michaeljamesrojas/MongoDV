@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import { connectToMongo, listDatabases, listCollections, fetchDocuments, fetchSchema } from './api';
 import DocumentCard from './components/DocumentCard';
+import Canvas from './components/Canvas';
 import './index.css';
 
 function App() {
@@ -21,6 +22,8 @@ function App() {
   const [schemaKeys, setSchemaKeys] = useState([]);
   const [queryFilters, setQueryFilters] = useState([]); // Array of { field, operator, value }
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
+  const [canvasDocuments, setCanvasDocuments] = useState([]);
+  const [showCanvas, setShowCanvas] = useState(false);
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -166,6 +169,24 @@ function App() {
     if (selectedCollection) {
       fetchCollectionDocuments(selectedCollection.db, selectedCollection.col, limit);
     }
+  };
+
+  const handleAddToCanvas = (doc) => {
+    if (!canvasDocuments.find(d => d._id === doc._id)) {
+      setCanvasDocuments(prev => [...prev, {
+        _id: doc._id || Math.random().toString(36).substr(2, 9),
+        data: doc,
+        x: 100 + (prev.length % 5) * 40,
+        y: 100 + (prev.length % 5) * 40
+      }]);
+    }
+    // Optional: Flash a notification or something?
+  };
+
+  const handleUpdateCanvasPosition = (id, x, y) => {
+    setCanvasDocuments(prev => prev.map(d =>
+      d._id === id ? { ...d, x, y } : d
+    ));
   };
 
   const Sidebar = () => (
@@ -389,150 +410,234 @@ function App() {
           <Sidebar />
           <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
             {selectedCollection ? (
-              <div>
-                {/* Query Builder Section */}
-                <div style={{ marginBottom: '2rem', background: 'var(--panel-bg)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 style={{ fontSize: '1.1rem', color: '#e2e8f0' }}>Query Builder</h3>
-                    <button onClick={addFilter} style={{
-                      background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.9rem'
-                    }}>+ Add Filter</button>
+              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h1 style={{ fontSize: '1.5rem', background: 'linear-gradient(to right, #e2e8f0, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', margin: 0 }}>
+                      {selectedCollection.col}
+                    </h1>
                   </div>
-
-                  {queryFilters.length === 0 && (
-                    <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic', marginBottom: '1rem' }}>
-                      No filters active. Showing all documents.
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginBottom: '1.5rem' }}>
-                    {queryFilters.map((filter, idx) => (
-                      <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <select
-                          value={filter.field}
-                          onChange={(e) => updateFilter(idx, 'field', e.target.value)}
-                          style={{
-                            background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', flex: 1
-                          }}
-                        >
-                          {schemaKeys.map(key => <option key={key} value={key}>{key}</option>)}
-                          {!schemaKeys.includes(filter.field) && filter.field && <option value={filter.field}>{filter.field}</option>}
-                        </select>
-
-                        <select
-                          value={filter.operator}
-                          onChange={(e) => updateFilter(idx, 'operator', e.target.value)}
-                          style={{
-                            background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', width: '80px'
-                          }}
-                        >
-                          <option value="=">=</option>
-                          <option value="!=">!=</option>
-                          <option value=">">&gt;</option>
-                          <option value=">=">&gt;=</option>
-                          <option value="<">&lt;</option>
-                          <option value="<=">&lt;=</option>
-                        </select>
-
-                        <input
-                          type="text"
-                          placeholder="Value"
-                          value={filter.value}
-                          onChange={(e) => updateFilter(idx, 'value', e.target.value)}
-                          style={{
-                            background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', flex: 1
-                          }}
-                        />
-
-                        <button onClick={() => removeFilter(idx)} style={{
-                          background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', width: '30px', height: '30px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>✕</button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button onClick={handleRunQuery} style={{
-                    background: 'linear-gradient(to right, var(--primary), var(--accent))', color: 'white', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '6px', fontWeight: 600, cursor: 'pointer'
-                  }}>
-                    Run Query
-                  </button>
-                </div>
-
-                <div style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ opacity: 0.5 }}>Documents in</span>
-                  <span style={{ color: 'var(--primary)' }}>{selectedCollection.col}</span>
-                  <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#94a3b8' }}>
-                    {documents.length} results
-                  </span>
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Limit:</label>
-                    <input
-                      type="number"
-                      value={limit}
-                      onChange={(e) => setLimit(e.target.value)}
-                      style={{
-                        background: 'rgba(0,0,0,0.2)',
-                        border: '1px solid var(--glass-border)',
-                        color: '#cbd5e1',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '4px',
-                        width: '60px',
-                        textAlign: 'center'
-                      }}
-                    />
+                  <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
                     <button
-                      onClick={handleRefresh}
-                      disabled={docLoading}
+                      onClick={() => setShowCanvas(false)}
                       style={{
-                        background: 'var(--primary)',
-                        color: 'white',
+                        background: !showCanvas ? 'var(--primary)' : 'transparent',
+                        color: !showCanvas ? 'white' : '#94a3b8',
                         border: 'none',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '4px',
-                        cursor: docLoading ? 'not-allowed' : 'pointer',
-                        opacity: docLoading ? 0.7 : 1,
-                        fontSize: '0.8rem'
+                        padding: '0.5rem 1rem',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontWeight: 500
                       }}
                     >
-                      Refresh
+                      List View
+                    </button>
+                    <button
+                      onClick={() => setShowCanvas(true)}
+                      style={{
+                        background: showCanvas ? 'var(--primary)' : 'transparent',
+                        color: showCanvas ? 'white' : '#94a3b8',
+                        border: 'none',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <span>Canvas</span>
+                      <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.2)', padding: '0 6px', borderRadius: '10px' }}>
+                        {canvasDocuments.length}
+                      </span>
                     </button>
                   </div>
                 </div>
 
-                {docError && (
-                  <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', marginBottom: '1rem' }}>
-                    {docError}
-                  </div>
-                )}
-
-                {docLoading ? (
-                  <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-                    Loading documents...
-                  </div>
+                {showCanvas ? (
+                  <Canvas documents={canvasDocuments} onUpdatePosition={handleUpdateCanvasPosition} />
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-                    {documents.map((doc, idx) => (
-                      <div key={doc._id || idx} style={{
-                        background: 'var(--panel-bg)',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: '8px',
-                        padding: '1rem',
-                        fontSize: '0.9rem',
-                        overflow: 'auto',
-                        maxHeight: '1000px',
-                        resize: 'both',
-                        minWidth: '300px',
-                        minHeight: '100px'
-                      }}>
-                        <DocumentCard data={doc} isRoot={true} />
+                  <>
+                    {/* Query Builder Section */}
+                    <div style={{ marginBottom: '2rem', background: 'var(--panel-bg)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', color: '#e2e8f0' }}>Query Builder</h3>
+                        <button onClick={addFilter} style={{
+                          background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.9rem'
+                        }}>+ Add Filter</button>
                       </div>
-                    ))}
-                    {documents.length === 0 && !docError && (
-                      <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: '#64748b', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--glass-border)' }}>
-                        No documents found in this collection.
+
+                      {queryFilters.length === 0 && (
+                        <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic', marginBottom: '1rem' }}>
+                          No filters active. Showing all documents.
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginBottom: '1.5rem' }}>
+                        {queryFilters.map((filter, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <select
+                              value={filter.field}
+                              onChange={(e) => updateFilter(idx, 'field', e.target.value)}
+                              style={{
+                                background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', flex: 1
+                              }}
+                            >
+                              {schemaKeys.map(key => <option key={key} value={key}>{key}</option>)}
+                              {!schemaKeys.includes(filter.field) && filter.field && <option value={filter.field}>{filter.field}</option>}
+                            </select>
+
+                            <select
+                              value={filter.operator}
+                              onChange={(e) => updateFilter(idx, 'operator', e.target.value)}
+                              style={{
+                                background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', width: '80px'
+                              }}
+                            >
+                              <option value="=">=</option>
+                              <option value="!=">!=</option>
+                              <option value=">">&gt;</option>
+                              <option value=">=">&gt;=</option>
+                              <option value="<">&lt;</option>
+                              <option value="<=">&lt;=</option>
+                            </select>
+
+                            <input
+                              type="text"
+                              placeholder="Value"
+                              value={filter.value}
+                              onChange={(e) => updateFilter(idx, 'value', e.target.value)}
+                              style={{
+                                background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#e2e8f0', padding: '0.5rem', borderRadius: '4px', flex: 1
+                              }}
+                            />
+
+                            <button onClick={() => removeFilter(idx)} style={{
+                              background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', width: '30px', height: '30px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button onClick={handleRunQuery} style={{
+                        background: 'linear-gradient(to right, var(--primary), var(--accent))', color: 'white', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '6px', fontWeight: 600, cursor: 'pointer'
+                      }}>
+                        Run Query
+                      </button>
+                    </div>
+
+                    <div style={{ marginBottom: '1.5rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <span style={{ opacity: 0.5 }}>Documents in</span>
+                      <span style={{ color: 'var(--primary)' }}>{selectedCollection.col}</span>
+                      <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#94a3b8' }}>
+                        {documents.length} results
+                      </span>
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Limit:</label>
+                        <input
+                          type="number"
+                          value={limit}
+                          onChange={(e) => setLimit(e.target.value)}
+                          style={{
+                            background: 'rgba(0,0,0,0.2)',
+                            border: '1px solid var(--glass-border)',
+                            color: '#cbd5e1',
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '4px',
+                            width: '60px',
+                            textAlign: 'center'
+                          }}
+                        />
+                        <button
+                          onClick={handleRefresh}
+                          disabled={docLoading}
+                          style={{
+                            background: 'var(--primary)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '4px',
+                            cursor: docLoading ? 'not-allowed' : 'pointer',
+                            opacity: docLoading ? 0.7 : 1,
+                            fontSize: '0.8rem'
+                          }}
+                        >
+                          Refresh
+                        </button>
+                      </div>
+                    </div>
+
+                    {docError && (
+                      <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', marginBottom: '1rem' }}>
+                        {docError}
                       </div>
                     )}
-                  </div>
+
+                    {docLoading ? (
+                      <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                        Loading documents...
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                        {documents.map((doc, idx) => (
+                          <div key={doc._id || idx} style={{
+                            background: 'var(--panel-bg)',
+                            border: '1px solid var(--glass-border)',
+                            borderRadius: '8px',
+                            padding: '1rem',
+                            fontSize: '0.9rem',
+                            overflow: 'auto',
+                            maxHeight: '1000px',
+                            resize: 'both',
+                            minWidth: '300px',
+                            minHeight: '100px',
+                            position: 'relative'
+                          }}>
+                            <button
+                              onClick={() => handleAddToCanvas(doc)}
+                              title="Send to Canvas"
+                              style={{
+                                position: 'absolute',
+                                top: '10px',
+                                right: '10px',
+                                background: 'rgba(255,255,255,0.05)',
+                                border: '1px solid var(--glass-border)',
+                                color: '#94a3b8',
+                                borderRadius: '4px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                zIndex: 5
+                              }}
+                              onMouseEnter={e => {
+                                e.currentTarget.style.background = 'var(--primary)';
+                                e.currentTarget.style.color = 'white';
+                              }}
+                              onMouseLeave={e => {
+                                e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                                e.currentTarget.style.color = '#94a3b8';
+                              }}
+                            >
+                              ⇱
+                            </button>
+                            <DocumentCard data={doc} isRoot={true} />
+                          </div>
+                        ))}
+                        {documents.length === 0 && !docError && (
+                          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: '#64748b', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--glass-border)' }}>
+                            No documents found in this collection.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ) : (
