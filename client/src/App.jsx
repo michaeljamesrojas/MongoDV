@@ -173,31 +173,45 @@ function App() {
     setGapNodes(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  const handleUpdateCanvasPosition = useCallback((id, x, y) => {
+  const handleUpdateCanvasPosition = (id, x, y) => {
     setCanvasDocuments(prev => prev.map(d =>
       d._id === id ? { ...d, x, y } : d
     ));
-  }, []);
+  };
 
-  const handleCloneCanvasDocument = useCallback((id) => {
-    setCanvasDocuments(prev => {
-      const docToClone = prev.find(d => d._id === id);
-      if (!docToClone) return prev;
+  const handleUpdateCanvasPositions = (updates) => {
+    // updates: { [id]: { x, y } }
+    setCanvasDocuments(prev => prev.map(d => {
+      if (updates[d._id]) {
+        return { ...d, x: updates[d._id].x, y: updates[d._id].y };
+      }
+      return d;
+    }));
+  };
 
-      const newDoc = {
-        ...docToClone,
-        _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
-        x: docToClone.x + 20,
-        y: docToClone.y + 20,
-        expandedPaths: [...(docToClone.expandedPaths || [])]
-      };
-      return [...prev, newDoc];
-    });
-  }, []);
+  const handleCloneCanvasDocument = (id) => {
+    const docToClone = canvasDocuments.find(d => d._id === id);
+    if (!docToClone) return;
 
-  const handleDeleteCanvasDocument = useCallback((id) => {
+    const newDoc = {
+      ...docToClone,
+      _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
+      x: docToClone.x + 20,
+      y: docToClone.y + 20,
+      expandedPaths: [...(docToClone.expandedPaths || [])]
+    };
+
+    setCanvasDocuments(prev => [...prev, newDoc]);
+  };
+
+  const handleDeleteCanvasDocument = (id) => {
     setCanvasDocuments(prev => prev.filter(d => d._id !== id));
-  }, []);
+  };
+
+  const handleDeleteCanvasDocuments = (ids) => {
+    const idsSet = new Set(ids);
+    setCanvasDocuments(prev => prev.filter(d => !idsSet.has(d._id)));
+  };
 
   const handleToggleExpand = useCallback((docId, path) => {
     setCanvasDocuments(prev => prev.map(doc => {
@@ -602,12 +616,14 @@ function App() {
                 viewState={canvasView}
                 onViewStateChange={setCanvasView}
                 onUpdatePosition={handleUpdateCanvasPosition}
+                onUpdatePositions={handleUpdateCanvasPositions}
                 onUpdateGapNodePosition={handleUpdateGapNodePosition}
                 onAddGapNode={handleAddGapNode}
                 onDeleteGapNode={handleDeleteGapNode}
                 onConnect={handleConnectRequest}
                 onClone={handleCloneCanvasDocument}
                 onDelete={handleDeleteCanvasDocument}
+                onDeleteMany={handleDeleteCanvasDocuments}
                 onSave={handleOpenSaveModal}
                 onLoad={handleOpenLoadModal}
                 onToggleExpand={handleToggleExpand}

@@ -158,17 +158,8 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = memo(({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand }) => {
-    const [position, setPosition] = useState({ x: doc.x, y: doc.y });
-    const [isDragging, setIsDragging] = useState(false);
-    const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
-    const docStart = useRef({ x: 0, y: 0 });  // Doc position at start
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset }) => {
     const cardRef = useRef(null);
-
-    // Sync local state when prop changes
-    useEffect(() => {
-        setPosition({ x: doc.x, y: doc.y });
-    }, [doc.x, doc.y]);
 
     // Set initial width
     useEffect(() => {
@@ -177,53 +168,21 @@ const DraggableCard = memo(({ doc, onUpdatePosition, zoom, onConnect, onClone, o
         }
     }, []);
 
-    const handleMouseDown = (e) => {
-        e.stopPropagation(); // Prevent propagation to canvas pan
-        if (e.button !== 0) return; // Only left click
-
-        setIsDragging(true);
-        dragStart.current = { x: e.clientX, y: e.clientY };
-        docStart.current = { x: position.x, y: position.y };
-
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const handleMouseMove = (e) => {
-        const dx = (e.clientX - dragStart.current.x) / zoom;
-        const dy = (e.clientY - dragStart.current.y) / zoom;
-
-        setPosition({
-            x: docStart.current.x + dx,
-            y: docStart.current.y + dy
-        });
-    };
-
-    const handleMouseUp = (e) => {
-        setIsDragging(false);
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-
-        // Calculate final position same way
-        const dx = (e.clientX - dragStart.current.x) / zoom;
-        const dy = (e.clientY - dragStart.current.y) / zoom;
-
-        onUpdatePosition(doc._id, docStart.current.x + dx, docStart.current.y + dy);
-    };
+    // If dragging this card (or it's part of selection), apply offset
+    // The parent calculates position + offset
+    const currentX = doc.x + (isSelected && dragOffset ? dragOffset.x : 0);
+    const currentY = doc.y + (isSelected && dragOffset ? dragOffset.y : 0);
 
     return (
         <div
             ref={cardRef}
             style={{
                 position: 'absolute',
-                left: position.x,
-                top: position.y,
-                // Removed maxHeight to allow infinite resizing
-                zIndex: isDragging ? 1000 : 10,
-                boxShadow: isDragging ? '0 10px 25px rgba(0,0,0,0.5)' : '0 4px 6px rgba(0,0,0,0.1)',
-                transition: isDragging ? 'none' : 'box-shadow 0.2s',
+                left: currentX,
+                top: currentY,
+                zIndex: isSelected ? 100 : 10,
+                boxShadow: isSelected ? '0 0 0 2px var(--primary), 0 10px 25px rgba(0,0,0,0.5)' : '0 4px 6px rgba(0,0,0,0.1)',
+                transition: dragOffset ? 'none' : 'box-shadow 0.2s, top 0.1s, left 0.1s', // Smooth snap back if needed, but instant during drag
                 background: 'var(--panel-bg)',
                 borderRadius: '8px',
                 border: '1px solid var(--glass-border)',
@@ -235,10 +194,14 @@ const DraggableCard = memo(({ doc, onUpdatePosition, zoom, onConnect, onClone, o
                 display: 'flex',
                 flexDirection: 'column'
             }}
-            onMouseDown={(e) => e.stopPropagation()} // Stop propagation for resize handle clicks etc
+            onMouseDown={(e) => {
+                e.stopPropagation();
+                // We notify parent. Parent determines if it's a drag start or just selection.
+                // But we need to pass the event so parent gets clientX/Y.
+                onMouseDown(e, doc._id);
+            }}
         >
             <div
-                onMouseDown={handleMouseDown}
                 style={{
                     marginBottom: '0.5rem',
                     paddingBottom: '0.5rem',
@@ -246,7 +209,7 @@ const DraggableCard = memo(({ doc, onUpdatePosition, zoom, onConnect, onClone, o
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'flex-start',
-                    cursor: isDragging ? 'grabbing' : 'grab',
+                    cursor: dragOffset ? 'grabbing' : 'grab',
                     userSelect: 'none',
                     flexShrink: 0
                 }}
@@ -323,19 +286,6 @@ const DraggableCard = memo(({ doc, onUpdatePosition, zoom, onConnect, onClone, o
                 />
             </div>
         </div>
-    );
-}, (prevProps, nextProps) => {
-    // Custom comparison to avoid re-renders on every parent render if props haven't changed
-    // Deep comparison of doc might be expensive, so we rely on immutability of doc object or specific fields
-    return (
-        prevProps.doc === nextProps.doc &&
-        prevProps.zoom === nextProps.zoom &&
-        prevProps.onUpdatePosition === nextProps.onUpdatePosition &&
-        prevProps.onConnect === nextProps.onConnect &&
-        prevProps.onClone === nextProps.onClone &&
-        prevProps.onDelete === nextProps.onDelete &&
-        prevProps.onDateClick === nextProps.onDateClick &&
-        prevProps.onToggleExpand === nextProps.onToggleExpand
     );
 });
 
@@ -429,9 +379,11 @@ const Canvas = ({
     viewState,
     onViewStateChange,
     onUpdatePosition,
+    onUpdatePositions,
     onConnect,
     onClone,
     onDelete,
+    onDeleteMany,
     onSave,
     onLoad,
     gapNodes = [],
@@ -446,9 +398,68 @@ const Canvas = ({
     const [isPanning, setIsPanning] = useState(false);
     const canvasRef = useRef(null);
     const [arrowDirection, setArrowDirection] = useState('forward'); // 'forward' | 'reverse'
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [dragState, setDragState] = useState(null); // { startX, startY, currentX, currentY }
+
+    // Keyboard listeners
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedIds.length > 0) {
+                    onDeleteMany && onDeleteMany(selectedIds);
+                    setSelectedIds([]);
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedIds, onDeleteMany]);
 
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
+
+    // Mark as Source Logic
+    const [markedSources, setMarkedSources] = useState(new Set()); // Set<"docId:path">
+    const [contextMenu, setContextMenu] = useState(null); // { x, y, docId, path }
+
+    const toggleMarkAsSource = useMemo(() => (docId, path) => {
+        const key = `${docId}:${path}`;
+        setMarkedSources(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) {
+                next.delete(key);
+            } else {
+                next.add(key);
+            }
+            return next;
+        });
+        setContextMenu(null);
+    }, []);
+
+    const handleContextMenu = useMemo(() => (e, docId, path) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            docId,
+            path
+        });
+    }, []);
+
+    // Close context menu on global click
+    useEffect(() => {
+        const closeMenu = () => setContextMenu(null);
+        if (contextMenu) {
+            window.addEventListener('click', closeMenu);
+            window.addEventListener('contextmenu', closeMenu); // Close on other right clicks too? maybe not
+        }
+        return () => {
+            window.removeEventListener('click', closeMenu);
+            window.removeEventListener('contextmenu', closeMenu);
+        };
+    }, [contextMenu]);
+
 
     // Use ref to access latest viewState in callbacks without triggering re-renders
     const viewStateRef = useRef(viewState);
@@ -466,37 +477,36 @@ const Canvas = ({
             return;
         }
 
-        setDateSelection(prev => {
-            if (!prev) {
-                return { value: date, stableId: stableId, ref: e.currentTarget };
-            } else {
-                // Check if same date selected (deselect)
-                if (prev.stableId === stableId) {
-                    return null;
-                }
-
-                // Calculate difference
-                const text = calculateTimeGap(prev.value, date);
-
-                // Calculate position in Canvas Coordinates
-                // e.clientX is viewport. We need to convert to canvas coords.
-                const canvasX = (e.clientX - pan.x) / zoom;
-                const canvasY = (e.clientY - pan.y) / zoom;
-
-                const newGapNode = {
-                    id: `gap-${Date.now()}`,
-                    text,
-                    x: canvasX,
-                    y: canvasY - 50, // slightly above
-                    sourceId: prev.stableId,
-                    targetId: stableId
-                };
-
-                onAddGapNode(newGapNode);
-                return null; // Reset
+        if (!dateSelection) {
+            setDateSelection({ value: date, stableId: stableId, ref: e.currentTarget });
+        } else {
+            // Check if same date selected (deselect)
+            if (dateSelection.stableId === stableId) {
+                setDateSelection(null);
+                return;
             }
-        });
-    }, [onAddGapNode]);
+
+            // Calculate difference
+            const text = calculateTimeGap(dateSelection.value, date);
+
+            // Calculate position in Canvas Coordinates
+            // e.clientX is viewport. We need to convert to canvas coords.
+            const canvasX = (e.clientX - pan.x) / zoom;
+            const canvasY = (e.clientY - pan.y) / zoom;
+
+            const newGapNode = {
+                id: `gap-${Date.now()}`,
+                text,
+                x: canvasX,
+                y: canvasY - 50, // slightly above
+                sourceId: dateSelection.stableId,
+                targetId: stableId
+            };
+
+            onAddGapNode(newGapNode);
+            setDateSelection(null); // Reset
+        }
+    }, [onAddGapNode, dateSelection]);
 
     // Connection Logic
     const nodeRegistry = useRef(new Map()); // Map<id, { type: 'def'|'ref', ref: HTMLElement, value: string }>
@@ -512,7 +522,13 @@ const Canvas = ({
     }, []);
 
     // Memoized Context Value
-    const contextValue = useMemo(() => ({ registerNode, unregisterNode }), [registerNode, unregisterNode]);
+    const contextValue = useMemo(() => ({
+        registerNode,
+        unregisterNode,
+        markedSources,
+        toggleMarkAsSource,
+        onContextMenu: handleContextMenu
+    }), [registerNode, unregisterNode, markedSources, toggleMarkAsSource, handleContextMenu]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -538,9 +554,14 @@ const Canvas = ({
         });
     };
 
-    const handleMouseDown = (e) => {
-        // Middle mouse or Left click on background
+    const handlePanMouseDown = (e) => {
+        // Middle mouse or Left click on background (only if not handled by card)
         if (e.button === 0 || e.button === 1) {
+            // If clicking background, clear selection unless shift is held
+            if (!e.shiftKey) {
+                setSelectedIds([]);
+            }
+
             setIsPanning(true);
             lastMousePos.current = { x: e.clientX, y: e.clientY };
             document.body.style.cursor = 'grabbing';
@@ -570,6 +591,96 @@ const Canvas = ({
         document.removeEventListener('mouseup', handlePanUp);
     };
 
+    // ----- Card Drag & Selection Logic -----
+
+    const handleCardMouseDown = (e, docId) => {
+        if (e.button !== 0) return; // Left click only
+
+        let newSelection = [...selectedIds];
+
+        if (e.shiftKey) {
+            if (newSelection.includes(docId)) {
+                newSelection = newSelection.filter(id => id !== docId);
+            } else {
+                newSelection.push(docId);
+            }
+        } else {
+            if (!newSelection.includes(docId)) {
+                newSelection = [docId];
+            }
+            // If already selected, keep selection (to allow dragging multiple)
+        }
+
+        setSelectedIds(newSelection);
+
+        // Init Drag
+        setDragState({
+            startX: e.clientX,
+            startY: e.clientY,
+            currentX: e.clientX,
+            currentY: e.clientY
+        });
+
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', handleCardMouseMove);
+        document.addEventListener('mouseup', handleCardMouseUp);
+    };
+
+    const handleCardMouseMove = (e) => {
+        setDragState(prev => ({
+            ...prev,
+            currentX: e.clientX,
+            currentY: e.clientY
+        }));
+    };
+
+    const handleCardMouseUp = (e) => {
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', handleCardMouseMove);
+        document.removeEventListener('mouseup', handleCardMouseUp);
+
+        // Commit positions
+        setDragState(prev => {
+            if (!prev) return null;
+
+            const dx = (e.clientX - prev.startX) / zoom;
+            const dy = (e.clientY - prev.startY) / zoom;
+
+            if (dx === 0 && dy === 0) {
+                // Was just a click, not a drag.
+                // If we didn't use shift, and clicked on a selected item, we might want to isolate it now?
+                // Standard behavior: if I have A and B selected, and I click A (without drag), A becomes sole selection.
+                // But we handled 'mouse down'. If we do it here it feels cleaner.
+                // Let's leave as is for now: click on selection preserves selection.
+            } else {
+                // Update all selected
+                const updates = {};
+                selectedIds.forEach(id => {
+                    const doc = documents.find(d => d._id === id);
+                    if (doc) {
+                        updates[id] = {
+                            x: doc.x + dx,
+                            y: doc.y + dy
+                        };
+                    }
+                });
+                if (onUpdatePositions) {
+                    onUpdatePositions(updates);
+                } else {
+                    // Fallback loop if batch not available (shouldn't happen with correct App.jsx)
+                    Object.entries(updates).forEach(([id, pos]) => onUpdatePosition(id, pos.x, pos.y));
+                }
+            }
+            return null;
+        });
+    };
+
+    // Calculate drag offset for rendering
+    const dragOffset = dragState ? {
+        x: (dragState.currentX - dragState.startX) / zoom,
+        y: (dragState.currentY - dragState.startY) / zoom
+    } : null;
+
     return (
         <div ref={canvasRef} style={{
             width: '100%',
@@ -580,7 +691,7 @@ const Canvas = ({
             cursor: isPanning ? 'grabbing' : 'grab'
         }}
             onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
+            onMouseDown={handlePanMouseDown}
         >
             {/* Grid Pattern that moves with Pan / Scale */}
             <div style={{
@@ -590,8 +701,8 @@ const Canvas = ({
                 right: 0,
                 bottom: 0,
                 background: 'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0)',
-                backgroundSize: `${20 * zoom}px ${20 * zoom} px`, // Scale grid
-                backgroundPosition: `${pan.x}px ${pan.y} px`,    // Move grid
+                backgroundSize: `${20 * zoom}px ${20 * zoom}px`, // Scale grid
+                backgroundPosition: `${pan.x}px ${pan.y}px`,    // Move grid
                 pointerEvents: 'none'
             }} />
 
@@ -630,9 +741,20 @@ const Canvas = ({
                                 zoom={zoom}
                                 onConnect={onConnect}
                                 onClone={onClone}
-                                onDelete={onDelete}
+                                onDelete={(id) => {
+                                    // If deleting from card button, delete selection if included, else just this one
+                                    if (selectedIds.includes(id)) {
+                                        onDeleteMany && onDeleteMany(selectedIds);
+                                        setSelectedIds([]);
+                                    } else {
+                                        onDelete(id);
+                                    }
+                                }}
                                 onDateClick={handleDateClick}
                                 onToggleExpand={onToggleExpand}
+                                isSelected={selectedIds.includes(doc._id)}
+                                onMouseDown={handleCardMouseDown}
+                                dragOffset={selectedIds.includes(doc._id) ? dragOffset : null}
                             />
                         ))}
 
@@ -679,6 +801,46 @@ const Canvas = ({
                 </div>
             )}
 
+            {/* Context Menu */}
+            {contextMenu && (
+                <div style={{
+                    position: 'fixed',
+                    left: contextMenu.x,
+                    top: contextMenu.y,
+                    background: 'var(--panel-bg)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: '6px',
+                    padding: '4px',
+                    zIndex: 9999,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    minWidth: '150px'
+                }}>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleMarkAsSource(contextMenu.docId, contextMenu.path);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        {markedSources.has(`${contextMenu.docId}:${contextMenu.path}`) ? 'Unmark as Source' : 'Mark as Source'}
+                    </button>
+                </div>
+            )}
+
 
             {/* HUD / Controls */}
             <div style={{
@@ -708,6 +870,7 @@ const Canvas = ({
                     title="Connect New Document"
                     style={{ background: 'transparent', border: 'none', color: '#fbbf24', cursor: 'pointer', fontSize: '1.1rem', display: 'flex', alignItems: 'center' }}
                 >
+                    <span style={{ fontSize: '0.9rem' }}>+</span>
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button

@@ -12,16 +12,22 @@ const isDate = (value) => {
 };
 
 const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path }) => {
-    const { registerNode, unregisterNode } = useConnection();
+    const { registerNode, unregisterNode, markedSources } = useConnection();
     const spanRef = useRef(null);
 
+    // Check if this field is marked as a source
+    const isMarkedSource = markedSources && markedSources.has(`${docId}:${path}`);
+
     useEffect(() => {
-        if (typeof value === 'string' && isObjectId(value) && spanRef.current) {
-            const type = isIdField ? 'def' : 'ref';
-            registerNode(value, type, spanRef.current);
-            return () => unregisterNode(spanRef.current);
+        if (spanRef.current) {
+            // Register if it's an ObjectId OR if it's marked as a source
+            if (typeof value === 'string' && (isObjectId(value) || isMarkedSource)) {
+                const type = isIdField ? 'def' : 'ref';
+                registerNode(value, type, spanRef.current);
+                return () => unregisterNode(spanRef.current);
+            }
         }
-    }, [value, isIdField, registerNode, unregisterNode]);
+    }, [value, isIdField, isMarkedSource, registerNode, unregisterNode]);
 
     if (value === null) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>null</span>;
     if (value === undefined) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>undefined</span>;
@@ -220,14 +226,29 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                         );
                     }
 
+                    const { onContextMenu, markedSources } = useConnection();
+                    const isMarked = markedSources && markedSources.has(`${currentDocId}:${nextPath}`);
+
                     return (
                         <div key={key} style={{ display: 'flex', gap: '6px', alignItems: 'baseline', padding: '1px 0' }}>
-                            <span style={{
-                                fontWeight: 600,
-                                color: key === '_id' ? 'var(--primary)' : '#94a3b8',
-                                fontSize: '0.85rem',
-                                whiteSpace: 'nowrap'
-                            }}>{key}:</span>
+                            <span
+                                onContextMenu={(e) => {
+                                    if (onContextMenu) {
+                                        onContextMenu(e, currentDocId, nextPath);
+                                    }
+                                }}
+                                style={{
+                                    fontWeight: 600,
+                                    color: key === '_id' ? 'var(--primary)' : '#94a3b8',
+                                    fontSize: '0.85rem',
+                                    whiteSpace: 'nowrap',
+                                    cursor: 'context-menu',
+                                    background: isMarked ? 'rgba(251, 191, 36, 0.2)' : 'transparent',
+                                    padding: isMarked ? '2px 4px' : '0',
+                                    borderRadius: isMarked ? '3px' : '0',
+                                    border: isMarked ? '1px solid rgba(251, 191, 36, 0.4)' : 'none'
+                                }}
+                            >{key}:</span>
                             <ValueDisplay
                                 value={value}
                                 onConnect={onConnect}
