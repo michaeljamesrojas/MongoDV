@@ -398,7 +398,9 @@ const Canvas = ({
     onDelete,
     onDeleteMany,
     onSave,
+    onSaveAs,
     onLoad,
+    currentSaveName,
     gapNodes = [],
     onUpdateGapNodePosition,
     onAddGapNode,
@@ -1081,7 +1083,24 @@ const Canvas = ({
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button onClick={() => { onViewStateChange({ pan: { x: 0, y: 0 }, zoom: 1 }); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
-                <button onClick={onSave} title="Save Canvas State" style={{ background: 'transparent', border: 'none', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+                {currentSaveName && (
+                    <span style={{
+                        color: '#94a3b8',
+                        fontSize: '0.75rem',
+                        padding: '2px 6px',
+                        background: 'rgba(96, 165, 250, 0.15)',
+                        border: '1px solid rgba(96, 165, 250, 0.3)',
+                        borderRadius: '4px',
+                        maxWidth: '120px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                    }} title={`Current save: ${currentSaveName}`}>
+                        📁 {currentSaveName}
+                    </span>
+                )}
+                <button onClick={onSave} title={currentSaveName ? `Save to "${currentSaveName}"` : "Save Canvas State"} style={{ background: 'transparent', border: 'none', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+                <button onClick={onSaveAs} title="Save As New..." style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer', fontWeight: 600 }}>Save As</button>
                 <button onClick={onLoad} title="Load Canvas State" style={{ background: 'transparent', border: 'none', color: '#4ade80', cursor: 'pointer', fontWeight: 600 }}>Load</button>
             </div>
         </div>

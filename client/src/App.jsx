@@ -34,6 +34,7 @@ function App() {
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
   const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [currentSaveName, setCurrentSaveName] = useState(null); // Track which save is currently loaded
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -296,8 +297,19 @@ function App() {
       timestamp: Date.now()
     };
     localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
+    setCurrentSaveName(name); // Track the saved name
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
     // Optional: Toast or notification
+  };
+
+  const handleQuickSave = () => {
+    if (currentSaveName) {
+      // Auto-save to current save
+      handleConfirmSave(currentSaveName);
+    } else {
+      // No current save, open Save As modal
+      handleOpenSaveModal();
+    }
   };
 
   const handleConfirmLoad = (name) => {
@@ -310,6 +322,7 @@ function App() {
       if (save.markedSources) setMarkedSources(new Set(save.markedSources)); // Restore Set from Array
       if (save.highlightedFields) setHighlightedFields(new Set(save.highlightedFields)); // Restore Set from Array
       if (save.hoistedFields) setHoistedFields(new Set(save.hoistedFields)); // Restore Set from Array
+      setCurrentSaveName(name); // Track the loaded save name
     }
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
   };
@@ -633,8 +646,10 @@ function App() {
                 onClone={handleCloneCanvasDocument}
                 onDelete={handleDeleteCanvasDocument}
                 onDeleteMany={handleDeleteCanvasDocuments}
-                onSave={handleOpenSaveModal}
+                onSave={handleQuickSave}
+                onSaveAs={handleOpenSaveModal}
                 onLoad={handleOpenLoadModal}
+                currentSaveName={currentSaveName}
                 onToggleExpand={handleToggleExpand}
                 markedSources={markedSources}
                 onMarkedSourcesChange={setMarkedSources}
