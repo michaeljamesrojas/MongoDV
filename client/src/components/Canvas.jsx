@@ -162,9 +162,10 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDele
     );
 };
 
-const Canvas = ({ documents, onUpdatePosition, onConnect, onClone, onDelete }) => {
-    const [pan, setPan] = useState({ x: 0, y: 0 });
-    const [zoom, setZoom] = useState(1);
+const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onConnect, onClone, onDelete, onSave, onLoad }) => {
+    // destruct defaults if undefined to avoid crash, though App passes them
+    const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
+
     const [isPanning, setIsPanning] = useState(false);
     const canvasRef = useRef(null);
 
@@ -274,8 +275,10 @@ const Canvas = ({ documents, onUpdatePosition, onConnect, onClone, onDelete }) =
         const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
         const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
 
-        setPan({ x: newPanX, y: newPanY });
-        setZoom(newZoom);
+        onViewStateChange({
+            pan: { x: newPanX, y: newPanY },
+            zoom: newZoom
+        });
     };
 
     const handleMouseDown = (e) => {
@@ -293,7 +296,13 @@ const Canvas = ({ documents, onUpdatePosition, onConnect, onClone, onDelete }) =
         const dx = e.clientX - lastMousePos.current.x;
         const dy = e.clientY - lastMousePos.current.y;
 
-        setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+        onViewStateChange(prev => ({
+            ...prev,
+            pan: {
+                x: prev.pan.x + dx,
+                y: prev.pan.y + dy
+            }
+        }));
         lastMousePos.current = { x: e.clientX, y: e.clientY };
     };
 
@@ -424,9 +433,9 @@ const Canvas = ({ documents, onUpdatePosition, onConnect, onClone, onDelete }) =
             }}
                 onMouseDown={e => e.stopPropagation()} // Prevent pan starting from HUD
             >
-                <button onClick={() => setZoom(z => Math.max(z - 0.1, 0.1))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>-</button>
+                <button onClick={() => onViewStateChange(prev => ({ ...prev, zoom: Math.max(prev.zoom - 0.1, 0.1) }))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>-</button>
                 <span style={{ minWidth: '40px', textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-                <button onClick={() => setZoom(z => Math.min(z + 0.1, 5))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>+</button>
+                <button onClick={() => onViewStateChange(prev => ({ ...prev, zoom: Math.min(prev.zoom + 0.1, 5) }))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>+</button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button
                     onClick={() => onConnect()}
@@ -436,7 +445,10 @@ const Canvas = ({ documents, onUpdatePosition, onConnect, onClone, onDelete }) =
                     🔗
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
-                <button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
+                <button onClick={() => { onViewStateChange({ pan: { x: 0, y: 0 }, zoom: 1 }); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
+                <button onClick={onSave} title="Save Canvas State" style={{ background: 'transparent', border: 'none', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+                <button onClick={onLoad} title="Load Canvas State" style={{ background: 'transparent', border: 'none', color: '#4ade80', cursor: 'pointer', fontWeight: 600 }}>Load</button>
             </div>
         </div>
     );

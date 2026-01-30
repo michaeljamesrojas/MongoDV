@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { listDatabases, listCollections, fetchDocuments, fetchSchema } from '../api';
+import QueryBuilder from './QueryBuilder';
 
 const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
     const [databases, setDatabases] = useState([]);
     const [selectedDb, setSelectedDb] = useState('');
     const [collections, setCollections] = useState([]);
     const [selectedCol, setSelectedCol] = useState('');
-    const [field, setField] = useState('_id'); // Default field to query
-    const [value, setValue] = useState(sourceId || '');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [schemaKeys, setSchemaKeys] = useState([]);
+    const [schema, setSchema] = useState({});
+    const [queryObject, setQueryObject] = useState({});
 
     useEffect(() => {
         if (isOpen && initialUri) {
@@ -18,7 +18,6 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
             listDatabases(initialUri)
                 .then(data => setDatabases(data.databases))
                 .catch(err => setError("Failed to load databases"));
-            setValue(sourceId);
         }
     }, [isOpen, initialUri, sourceId]);
 
@@ -26,7 +25,7 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
         const dbName = e.target.value;
         setSelectedDb(dbName);
         setSelectedCol('');
-        setSchemaKeys([]);
+        setSchema({});
         if (dbName) {
             try {
                 const data = await listCollections(initialUri, dbName);
@@ -44,11 +43,10 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
         if (colName && selectedDb) {
             try {
                 const schemaData = await fetchSchema(initialUri, selectedDb, colName);
-                setSchemaKeys(schemaData.keys || []);
-                // Smart default: if we have a field like "userId" and our source is an ID, maybe pick that?
-                // For now, default to _id or first key
+                setSchema(schemaData.schema || {});
             } catch (err) {
                 console.error("Failed to fetch schema", err);
+                setSchema({});
             }
         }
     }
@@ -59,22 +57,7 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
         setError(null);
 
         try {
-            // Construct query
-            const query = {};
-            // Attempt to infer type. If looks like ObjectId, keep string? No, standard query parser in App.jsx handles basic types?
-            // Wait, we need to call the API directly or pass back to App?
-            // The plan said "onConnect runs query".
-            // Let's call the API here to get the docs, then pass them up.
-
-            // Smart value parsing (similar to App.jsx)
-            let queryVal = value;
-            if (!isNaN(queryVal) && queryVal.trim() !== '') {
-                queryVal = Number(queryVal);
-            }
-
-            query[field] = queryVal;
-
-            const data = await fetchDocuments(initialUri, selectedDb, selectedCol, 20, query); // Default limit 20
+            const data = await fetchDocuments(initialUri, selectedDb, selectedCol, 20, queryObject); // Default limit 20
             onConnect(data.documents, selectedCol);
             onClose();
         } catch (err) {
@@ -83,6 +66,13 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
             setLoading(false);
         }
     };
+
+    const initialFilters = sourceId ? [{
+        field: '_id',
+        operator: '=',
+        value: sourceId,
+        type: 'ObjectId'
+    }] : [];
 
     if (!isOpen) return null;
 
@@ -103,7 +93,7 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
                 borderRadius: '12px',
                 padding: '2rem',
                 width: '100%',
-                maxWidth: '500px',
+                maxWidth: '600px',
                 boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
             }} onClick={e => e.stopPropagation()}>
                 <h2 style={{ color: '#e2e8f0', marginBottom: '1.5rem', fontSize: '1.5rem' }}>Connect to Document</h2>
@@ -149,35 +139,18 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
                         </select>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '1rem' }}>
-                        {/* Field Selection */}
-                        <div style={{ flex: 1 }}>
-                            <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.9rem', marginBottom: '0.4rem' }}>Field</label>
-                            <input
-                                list="schemaFields"
-                                type="text"
-                                value={field}
-                                onChange={(e) => setField(e.target.value)}
-                                required
-                                style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #475569', background: '#0f172a', color: 'white' }}
-                            />
-                            <datalist id="schemaFields">
-                                {schemaKeys.map(key => <option key={key} value={key} />)}
-                            </datalist>
-                        </div>
-
-                        {/* Value Input */}
-                        <div style={{ flex: 1 }}>
-                            <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.9rem', marginBottom: '0.4rem' }}>Value</label>
-                            <input
-                                type="text"
-                                value={value}
-                                onChange={(e) => setValue(e.target.value)}
-                                required
-                                style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #475569', background: '#0f172a', color: 'white' }}
-                            />
-                        </div>
+                    {/* Query Builder */}
+                    <div style={{ marginTop: '0.5rem' }}>
+                        <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.9rem', marginBottom: '0.4rem' }}>Filter Documents</label>
+                        <QueryBuilder
+                            schema={schema}
+                            onQueryChange={setQueryObject}
+                            showRunButton={false}
+                            initialFilters={initialFilters}
+                            style={{ background: 'rgba(15, 23, 42, 0.5)', marginBottom: '0', padding: '1rem' }}
+                        />
                     </div>
+
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
                         <button
@@ -189,16 +162,16 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
                         </button>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || !selectedDb || !selectedCol}
                             style={{
                                 padding: '0.6rem 1.2rem',
                                 borderRadius: '6px',
                                 border: 'none',
                                 background: 'linear-gradient(to right, #3b82f6, #8b5cf6)',
                                 color: 'white',
-                                cursor: loading ? 'wait' : 'pointer',
+                                cursor: (loading || !selectedDb || !selectedCol) ? 'not-allowed' : 'pointer',
                                 fontWeight: 600,
-                                opacity: loading ? 0.7 : 1
+                                opacity: (loading || !selectedDb || !selectedCol) ? 0.7 : 1
                             }}
                         >
                             {loading ? 'Connecting...' : 'Connect'}

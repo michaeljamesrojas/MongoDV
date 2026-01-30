@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const QueryBuilder = ({ schema = {}, onRunQuery }) => {
-    const [filters, setFilters] = useState([]);
+const QueryBuilder = ({ schema = {}, onRunQuery, onQueryChange, showRunButton = true, initialFilters = [], style = {} }) => {
+    const [filters, setFilters] = useState(initialFilters);
     const [jsonPreview, setJsonPreview] = useState('{}');
 
     // Convert schema object to array of keys for dropdown
@@ -44,8 +44,12 @@ const QueryBuilder = ({ schema = {}, onRunQuery }) => {
                 query[filter.field] = { $lte: val };
             }
         });
-        setJsonPreview(JSON.stringify(query, null, 2));
-    }, [filters]);
+        const json = JSON.stringify(query, null, 2);
+        setJsonPreview(json);
+        if (onQueryChange) {
+            onQueryChange(query);
+        }
+    }, [filters, onQueryChange]);
 
     const addFilter = () => {
         const defaultField = schemaKeys[0] || '';
@@ -78,10 +82,10 @@ const QueryBuilder = ({ schema = {}, onRunQuery }) => {
     };
 
     return (
-        <div style={{ marginBottom: '2rem', background: 'var(--panel-bg)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+        <div style={{ marginBottom: '2rem', background: 'var(--panel-bg)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--glass-border)', ...style }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1.1rem', color: '#e2e8f0' }}>Query Builder</h3>
-                <button onClick={addFilter} style={{
+                <button type="button" onClick={addFilter} style={{
                     background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.9rem'
                 }}>+ Add Filter</button>
             </div>
@@ -159,7 +163,7 @@ const QueryBuilder = ({ schema = {}, onRunQuery }) => {
                             />
                         )}
 
-                        <button onClick={() => removeFilter(idx)} style={{
+                        <button type="button" onClick={() => removeFilter(idx)} style={{
                             background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', width: '30px', height: '30px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}>✕</button>
                     </div>
@@ -186,11 +190,13 @@ const QueryBuilder = ({ schema = {}, onRunQuery }) => {
                 />
             </div>
 
-            <button onClick={() => onRunQuery(JSON.parse(jsonPreview))} style={{
-                background: 'linear-gradient(to right, var(--primary), var(--accent))', color: 'white', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '6px', fontWeight: 600, cursor: 'pointer'
-            }}>
-                Run Query
-            </button>
+            {showRunButton && (
+                <button onClick={() => onRunQuery && onRunQuery(JSON.parse(jsonPreview))} style={{
+                    background: 'linear-gradient(to right, var(--primary), var(--accent))', color: 'white', border: 'none', padding: '0.6rem 1.5rem', borderRadius: '6px', fontWeight: 600, cursor: 'pointer'
+                }}>
+                    Run Query
+                </button>
+            )}
         </div>
     );
 };

@@ -5,6 +5,7 @@ import DocumentCard from './components/DocumentCard';
 import Canvas from './components/Canvas';
 import QueryBuilder from './components/QueryBuilder';
 import ConnectModal from './components/ConnectModal';
+import SaveLoadModal from './components/SaveLoadModal';
 import './index.css';
 
 function App() {
@@ -24,8 +25,10 @@ function App() {
   const [schema, setSchema] = useState({});
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
   const [canvasDocuments, setCanvasDocuments] = useState([]);
+  const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
   const [showCanvas, setShowCanvas] = useState(false);
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
+  const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -186,6 +189,65 @@ function App() {
         }));
       return [...prev, ...addedDocs];
     });
+  };
+
+  const getSavesFromStorage = () => {
+    try {
+      const raw = localStorage.getItem('mongoDV_saves_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      console.error("Failed to read saves", e);
+      return {};
+    }
+  };
+
+  const handleOpenSaveModal = () => {
+    setSaveLoadModalState({ isOpen: true, mode: 'save', savedList: [] });
+  };
+
+  const handleOpenLoadModal = () => {
+    const saves = getSavesFromStorage();
+    const list = Object.entries(saves).map(([name, data]) => ({
+      name,
+      timestamp: data.timestamp
+    })).sort((a, b) => b.timestamp - a.timestamp);
+
+    setSaveLoadModalState({ isOpen: true, mode: 'load', savedList: list });
+  };
+
+  const handleConfirmSave = (name) => {
+    const saves = getSavesFromStorage();
+    saves[name] = {
+      documents: canvasDocuments,
+      view: canvasView,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
+    setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
+    // Optional: Toast or notification
+  };
+
+  const handleConfirmLoad = (name) => {
+    const saves = getSavesFromStorage();
+    const save = saves[name];
+    if (save) {
+      if (save.documents) setCanvasDocuments(save.documents);
+      if (save.view) setCanvasView(save.view);
+    }
+    setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
+  };
+
+  const handleDeleteSave = (name) => {
+    const saves = getSavesFromStorage();
+    delete saves[name];
+    localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
+
+    // Refresh list
+    const list = Object.entries(saves).map(([name, data]) => ({
+      name,
+      timestamp: data.timestamp
+    })).sort((a, b) => b.timestamp - a.timestamp);
+    setSaveLoadModalState(prev => ({ ...prev, savedList: list }));
   };
 
   const Sidebar = () => (
@@ -459,10 +521,14 @@ function App() {
                 {showCanvas ? (
                   <Canvas
                     documents={canvasDocuments}
+                    viewState={canvasView}
+                    onViewStateChange={setCanvasView}
                     onUpdatePosition={handleUpdateCanvasPosition}
                     onConnect={handleConnectRequest}
                     onClone={handleCloneCanvasDocument}
                     onDelete={handleDeleteCanvasDocument}
+                    onSave={handleOpenSaveModal}
+                    onLoad={handleOpenLoadModal}
                   />
                 ) : (
                   <>
@@ -599,6 +665,14 @@ function App() {
         sourceId={connectModalState.sourceId}
         initialUri={uri}
         onConnect={handleConnectSubmit}
+      />
+      <SaveLoadModal
+        isOpen={saveLoadModalState.isOpen}
+        onClose={() => setSaveLoadModalState(prev => ({ ...prev, isOpen: false }))}
+        mode={saveLoadModalState.mode}
+        existingSaves={saveLoadModalState.savedList}
+        onConfirm={saveLoadModalState.mode === 'save' ? handleConfirmSave : handleConfirmLoad}
+        onDelete={handleDeleteSave}
       />
     </div >
   );
