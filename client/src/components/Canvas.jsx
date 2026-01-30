@@ -1204,7 +1204,7 @@ const Canvas = ({
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
-                        {markedSources.has(`${contextMenu.collection}:${contextMenu.path}`) ? 'Unmark as Source' : 'Mark as Source'}
+                        {markedSources.has(`${contextMenu.collection}:${contextMenu.path}`) ? 'Unmark as Source' : 'Mark as Source (act as _id)'}
                     </button>
                     <button
                         onClick={(e) => {
@@ -1251,6 +1251,66 @@ const Canvas = ({
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                         {hoistedFields.has(`${contextMenu.collection}:${contextMenu.path}`) ? '↓ Unhoist' : '📌 Hoist to Top'}
+                    </button>
+                    <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', margin: '4px 0' }} />
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const doc = docMap.get(contextMenu.docId);
+                            if (doc) {
+                                const value = getValueByPath(doc.data, contextMenu.path);
+                                const text = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
+                                navigator.clipboard.writeText(text);
+                            }
+                            setContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        📋 Copy Value
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const doc = docMap.get(contextMenu.docId);
+                            if (doc) {
+                                const value = getValueByPath(doc.data, contextMenu.path);
+                                const key = contextMenu.path.split('.').pop();
+                                const valueText = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
+                                navigator.clipboard.writeText(`${key}: ${valueText}`);
+                            }
+                            setContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        📝 Copy Key + Value
                     </button>
                 </div>
             )}
