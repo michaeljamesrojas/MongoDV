@@ -277,6 +277,7 @@ const Canvas = ({
 
     const [isPanning, setIsPanning] = useState(false);
     const canvasRef = useRef(null);
+    const [arrowDirection, setArrowDirection] = useState('forward'); // 'forward' | 'reverse'
 
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
@@ -375,12 +376,17 @@ const Canvas = ({
                             const start = getCanvasCoords(refRect);
                             const end = getCanvasCoords(defRect);
 
+                            // Determine start/end based on direction
+                            // Default: Reference -> Definition (start -> end)
+                            // Reverse: Definition -> Reference (end -> start)
+                            const isReverse = arrowDirection === 'reverse';
+
                             newLines.push({
                                 id: `${nodeRegistry.current.get(refNode.ref)?.value} -${Math.random()} `,
-                                x1: start.x,
-                                y1: start.y,
-                                x2: end.x,
-                                y2: end.y,
+                                x1: isReverse ? end.x : start.x,
+                                y1: isReverse ? end.y : start.y,
+                                x2: isReverse ? start.x : end.x,
+                                y2: isReverse ? start.y : end.y,
                                 color: '#fbbf24'
                             });
                         });
@@ -440,7 +446,7 @@ const Canvas = ({
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [documents, pan, zoom, gapNodes]);
+    }, [documents, pan, zoom, gapNodes, arrowDirection]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -657,7 +663,22 @@ const Canvas = ({
                     title="Connect New Document"
                     style={{ background: 'transparent', border: 'none', color: '#fbbf24', cursor: 'pointer', fontSize: '1.1rem', display: 'flex', alignItems: 'center' }}
                 >
-                    🔗
+                </button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
+                <button
+                    onClick={() => setArrowDirection(prev => prev === 'forward' ? 'reverse' : 'forward')}
+                    title={`Toggle Arrow Direction (${arrowDirection})`}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: arrowDirection === 'forward' ? '#94a3b8' : '#fbbf24',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center'
+                    }}
+                >
+                    ⇄
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button onClick={() => { onViewStateChange({ pan: { x: 0, y: 0 }, zoom: 1 }); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
