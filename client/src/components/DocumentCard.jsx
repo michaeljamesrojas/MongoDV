@@ -12,7 +12,7 @@ const isDate = (value) => {
         !isNaN(Date.parse(value));
 };
 
-const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, collection }) => {
+const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, docId, path, collection }) => {
     const { registerNode, unregisterNode, markedSources, idColorOverrides = {}, onIdColorChange } = useConnection();
     const spanRef = useRef(null);
 
@@ -87,6 +87,26 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, c
                     >
                         {value}
                     </span>
+                    {(isIdField || isMarkedSource) ? null : (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onFlagClick && onFlagClick(value); }}
+                            title="Go to definition"
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                fontSize: '0.8rem',
+                                opacity: 0.7,
+                                transition: 'transform 0.1s',
+                                marginLeft: '2px'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.2)'}
+                            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                            🚩
+                        </button>
+                    )}
                 </span>
             );
         }
@@ -201,7 +221,7 @@ const CollapsibleField = ({ label, children, typeLabel, initialOpen = false, isO
     );
 };
 
-const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '', docId, collection, expandedPaths, onToggleExpand }) => {
+const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClick, path = '', docId, collection, expandedPaths, onToggleExpand }) => {
     // Extract ID if at root. Prefer passed docId (Wrapper ID) over data._id if available.
     const currentDocId = docId || (isRoot && data ? data._id : 'unknown');
 
@@ -233,6 +253,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                             data={item}
                                             onConnect={onConnect}
                                             onDateClick={onDateClick}
+                                            onFlagClick={onFlagClick}
                                             path={currentPath}
                                             docId={currentDocId}
                                             collection={collection}
@@ -245,6 +266,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                         value={item}
                                         onConnect={onConnect}
                                         onDateClick={onDateClick}
+                                        onFlagClick={onFlagClick}
                                         path={currentPath}
                                         docId={currentDocId}
                                         collection={collection}
@@ -297,6 +319,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                     data={value}
                                     onConnect={onConnect}
                                     onDateClick={onDateClick}
+                                    onFlagClick={onFlagClick}
                                     path={nextPath}
                                     docId={currentDocId}
                                     collection={collection}
@@ -348,6 +371,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                             <ValueDisplay
                                 value={value}
                                 onConnect={onConnect}
+                                onFlagClick={onFlagClick}
                                 isIdField={key === '_id'}
                                 onDateClick={onDateClick}
                                 path={nextPath}
@@ -365,6 +389,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
         value={data}
         onConnect={onConnect}
         onDateClick={onDateClick}
+        onFlagClick={onFlagClick}
         path={path}
         docId={currentDocId}
         collection={collection}

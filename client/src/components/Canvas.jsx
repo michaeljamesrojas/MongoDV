@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import { useToast } from '../contexts/ToastContext';
@@ -271,7 +271,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop }) => {
     const cardRef = useRef(null);
 
     // Set initial width
@@ -445,6 +445,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
                     isRoot={true}
                     onConnect={onConnect}
                     onDateClick={onDateClick}
+                    onFlagClick={onFlagClick}
                     onToggleExpand={onToggleExpand}
                     expandedPaths={doc.expandedPaths || []}
                     docId={doc._id}
@@ -601,6 +602,90 @@ const Canvas = ({
 
     // Custom document creation state
     const [pendingCustomCard, setPendingCustomCard] = useState(null); // { x, y, data: string }
+
+    // Animation Ref
+    const animationFrameRef = useRef(null);
+
+    const handleFlagClick = useCallback((targetValue) => {
+        if (!canvasRef.current) return;
+
+        // 1. Find the target node in the registry
+        let targetCanvasPos = null;
+
+        // First look for a 'def' node with this value
+        for (const [ref, node] of nodeRegistry.current.entries()) {
+            if (node.value === targetValue && node.type === 'def') {
+                const rect = ref.getBoundingClientRect();
+                const canvasRect = canvasRef.current.getBoundingClientRect();
+                // Convert screen center of node to canvas coordinates
+                const screenX = rect.left + rect.width / 2;
+                const screenY = rect.top + rect.height / 2;
+
+                targetCanvasPos = {
+                    x: (screenX - canvasRect.left - viewStateRef.current.pan.x) / viewStateRef.current.zoom,
+                    y: (screenY - canvasRect.top - viewStateRef.current.pan.y) / viewStateRef.current.zoom
+                };
+                break;
+            }
+        }
+
+        // If not found in registry (collapsed or not a source yet), look for document with this _id
+        if (!targetCanvasPos) {
+            const targetDoc = documents.find(d => d._id === targetValue || (d.data && d.data._id === targetValue));
+            if (targetDoc) {
+                targetCanvasPos = {
+                    x: targetDoc.x + 175, // Center of 350px card
+                    y: targetDoc.y + 100  // Rough center
+                };
+            }
+        }
+
+        if (!targetCanvasPos) {
+            showToast(`Target "${targetValue}" not found on canvas`, 'warning');
+            return;
+        }
+
+        // 2. Calculate target pan to center the targetCanvasPos
+        const viewport = canvasRef.current.getBoundingClientRect();
+        const targetZoom = Math.max(viewStateRef.current.zoom, 0.6); // Don't zoom in too much, but ensure it's visible
+
+        const targetPanX = viewport.width / 2 - targetCanvasPos.x * targetZoom;
+        const targetPanY = viewport.height / 2 - targetCanvasPos.y * targetZoom;
+
+        // 3. Smoothly animate pan and zoom
+        const startPan = { ...viewStateRef.current.pan };
+        const startZoom = viewStateRef.current.zoom;
+        const duration = 800; // ms
+        const startTime = performance.now();
+
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+
+            // Easing function (easeInOutCubic)
+            const ease = progress < 0.5
+                ? 4 * progress * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+            const currentPan = {
+                x: startPan.x + (targetPanX - startPan.x) * ease,
+                y: startPan.y + (targetPanY - startPan.y) * ease
+            };
+            const currentZoom = startZoom + (targetZoom - startZoom) * ease;
+
+            onViewStateChange({ pan: currentPan, zoom: currentZoom });
+
+            if (progress < 1) {
+                animationFrameRef.current = requestAnimationFrame(animate);
+            } else {
+                animationFrameRef.current = null;
+            }
+        };
+
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = requestAnimationFrame(animate);
+
+    }, [documents, onViewStateChange, showToast]);
 
     // Memoized Map of documents for efficient lookup by ID
     const docMap = useMemo(() => {
@@ -1109,40 +1194,45 @@ const Canvas = ({
                             </div>
                         )}
 
-                        {documents.map(doc => (
-                            <DraggableCard
-                                key={doc._id}
-                                doc={doc}
-                                onUpdatePosition={onUpdatePosition}
-                                zoom={zoom}
-                                onConnect={onConnect}
-                                onClone={onClone}
-                                onDelete={(id) => {
-                                    // If deleting from card button, delete selection if included, else just this one
-                                    if (selectedIds.includes(id)) {
-                                        onDeleteMany && onDeleteMany(selectedIds);
-                                        setSelectedIds([]);
-                                    } else {
-                                        onDelete(id);
-                                    }
-                                }}
-                                onDateClick={handleDateClick}
-                                onToggleExpand={onToggleExpand}
-                                isSelected={selectedIds.includes(doc._id) || boxSelectPreviewIds.includes(doc._id)}
-                                onMouseDown={handleCardMouseDown}
-                                dragOffset={selectedIds.includes(doc._id) ? dragOffset : null}
-                                registerRef={(id, el) => {
-                                    if (el) {
-                                        cardRefs.current.set(id, el);
-                                    } else {
-                                        cardRefs.current.delete(id);
-                                    }
-                                }}
-                                backdropToggleMode={backdropToggleMode}
-                                backdropMouseDown={backdropMouseDown}
-                                onToggleBackdrop={onToggleBackdrop}
-                            />
-                        ))}
+                        {documents.map(doc => {
+                            const isSelected = selectedIds.includes(doc._id);
+                            const isSelectedForDrag = isSelected && dragState;
+                            const dragOffset = isSelectedForDrag ? { x: dragState.currentX - dragState.startX, y: dragState.currentY - dragState.startY } : null;
+
+                            return (
+                                <DraggableCard
+                                    key={doc._id}
+                                    doc={doc}
+                                    zoom={zoom}
+                                    onConnect={onConnect}
+                                    onFlagClick={handleFlagClick}
+                                    onClone={onClone}
+                                    onDelete={(id) => {
+                                        if (selectedIds.includes(id)) {
+                                            onDeleteMany && onDeleteMany(selectedIds);
+                                            setSelectedIds([]);
+                                        } else {
+                                            onDelete(id);
+                                        }
+                                    }}
+                                    onDateClick={handleDateClick}
+                                    onToggleExpand={onToggleExpand}
+                                    isSelected={isSelected || boxSelectPreviewIds.includes(doc._id)}
+                                    onMouseDown={handleCardMouseDown}
+                                    dragOffset={dragOffset}
+                                    registerRef={(id, el) => {
+                                        if (el) {
+                                            cardRefs.current.set(id, el);
+                                        } else {
+                                            cardRefs.current.delete(id);
+                                        }
+                                    }}
+                                    backdropToggleMode={backdropToggleMode}
+                                    backdropMouseDown={backdropMouseDown}
+                                    onToggleBackdrop={onToggleBackdrop}
+                                />
+                            );
+                        })}
 
                         {gapNodes.map(node => {
                             let liveText = node.text;
