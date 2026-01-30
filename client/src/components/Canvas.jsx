@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import DocumentCard from './DocumentCard';
 
-const DraggableCard = ({ doc, onUpdatePosition, zoom }) => {
+const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
@@ -104,13 +104,13 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom }) => {
             </div>
 
             <div style={{ flex: 1 }}>
-                <DocumentCard data={doc.data} isRoot={false} />
+                <DocumentCard data={doc.data} isRoot={false} onConnect={onConnect} />
             </div>
         </div>
     );
 };
 
-const Canvas = ({ documents, onUpdatePosition }) => {
+const Canvas = ({ documents, onUpdatePosition, onConnect }) => {
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [isPanning, setIsPanning] = useState(false);
@@ -223,6 +223,7 @@ const Canvas = ({ documents, onUpdatePosition }) => {
                             doc={doc}
                             onUpdatePosition={onUpdatePosition}
                             zoom={zoom}
+                            onConnect={onConnect}
                         />
                     ))}
                 </div>

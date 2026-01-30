@@ -10,7 +10,7 @@ const isDate = (value) => {
         !isNaN(Date.parse(value));
 };
 
-const ValueDisplay = ({ value }) => {
+const ValueDisplay = ({ value, onConnect }) => {
     if (value === null) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>null</span>;
     if (value === undefined) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>undefined</span>;
 
@@ -25,10 +25,22 @@ const ValueDisplay = ({ value }) => {
     if (typeof value === 'string') {
         if (isObjectId(value)) {
             return (
-                <span style={{
-                    color: '#fbbf24',
-                    fontFamily: 'monospace',
-                }}>
+                <span
+                    onClick={(e) => {
+                        if (onConnect) {
+                            e.stopPropagation();
+                            onConnect(value);
+                        }
+                    }}
+                    style={{
+                        color: '#fbbf24',
+                        fontFamily: 'monospace',
+                        cursor: onConnect ? 'pointer' : 'text',
+                        textDecoration: onConnect ? 'underline' : 'none',
+                        textDecorationStyle: onConnect ? 'dotted' : 'none'
+                    }}
+                    title={onConnect ? "Click to connect" : ""}
+                >
                     {value}
                 </span>
             );
@@ -73,7 +85,7 @@ const CollapsibleField = ({ label, children, typeLabel, initialOpen = false }) =
     );
 };
 
-const DocumentCard = ({ data, isRoot = false }) => {
+const DocumentCard = ({ data, isRoot = false, onConnect }) => {
     // Array Handling
     if (Array.isArray(data)) {
         if (data.length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>[]</span>;
@@ -88,10 +100,10 @@ const DocumentCard = ({ data, isRoot = false }) => {
                                     label={index}
                                     typeLabel={Array.isArray(item) ? `Array[${item.length}]` : `Object{${Object.keys(item).length}}`}
                                 >
-                                    <DocumentCard data={item} />
+                                    <DocumentCard data={item} onConnect={onConnect} />
                                 </CollapsibleField>
                             ) : (
-                                <ValueDisplay value={item} />
+                                <ValueDisplay value={item} onConnect={onConnect} />
                             )}
                         </div>
                     </div>
@@ -118,7 +130,7 @@ const DocumentCard = ({ data, isRoot = false }) => {
                                 typeLabel={typeCount}
                                 initialOpen={false}
                             >
-                                <DocumentCard data={value} />
+                                <DocumentCard data={value} onConnect={onConnect} />
                             </CollapsibleField>
                         );
                     }
@@ -131,7 +143,7 @@ const DocumentCard = ({ data, isRoot = false }) => {
                                 fontSize: '0.85rem',
                                 whiteSpace: 'nowrap'
                             }}>{key}:</span>
-                            <ValueDisplay value={value} />
+                            <ValueDisplay value={value} onConnect={onConnect} />
                         </div>
                     );
                 })}
@@ -139,7 +151,8 @@ const DocumentCard = ({ data, isRoot = false }) => {
         );
     }
 
-    return <ValueDisplay value={data} />;
+    return <ValueDisplay value={data} onConnect={onConnect} />;
 };
 
 export default DocumentCard;
+

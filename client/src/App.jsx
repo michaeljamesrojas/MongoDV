@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { connectToMongo, listDatabases, listCollections, fetchDocuments, fetchSchema } from './api';
 import DocumentCard from './components/DocumentCard';
 import Canvas from './components/Canvas';
+import ConnectModal from './components/ConnectModal';
 import './index.css';
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
   const [canvasDocuments, setCanvasDocuments] = useState([]);
   const [showCanvas, setShowCanvas] = useState(false);
+  const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -187,6 +189,29 @@ function App() {
     setCanvasDocuments(prev => prev.map(d =>
       d._id === id ? { ...d, x, y } : d
     ));
+  };
+
+  const handleConnectRequest = (id) => {
+    setConnectModalState({ isOpen: true, sourceId: id });
+  };
+
+  const handleConnectSubmit = (newDocs) => {
+    if (!newDocs || newDocs.length === 0) return;
+
+    // Add new docs to canvas
+    // TODO: Ideally position them near the source card, but for now just random/cascade
+    setCanvasDocuments(prev => {
+      const existingIds = new Set(prev.map(d => d._id));
+      const addedDocs = newDocs
+        .filter(d => !existingIds.has(d._id))
+        .map((doc, idx) => ({
+          _id: doc._id || Math.random().toString(36).substr(2, 9),
+          data: doc,
+          x: 200 + (prev.length % 5) * 40 + idx * 20, // Offset slightly
+          y: 200 + (prev.length % 5) * 40 + idx * 20
+        }));
+      return [...prev, ...addedDocs];
+    });
   };
 
   const Sidebar = () => (
@@ -458,7 +483,11 @@ function App() {
                 </div>
 
                 {showCanvas ? (
-                  <Canvas documents={canvasDocuments} onUpdatePosition={handleUpdateCanvasPosition} />
+                  <Canvas
+                    documents={canvasDocuments}
+                    onUpdatePosition={handleUpdateCanvasPosition}
+                    onConnect={handleConnectRequest}
+                  />
                 ) : (
                   <>
                     {/* Query Builder Section */}
@@ -654,6 +683,13 @@ function App() {
         <ConnectionScreen />
       )
       }
+      <ConnectModal
+        isOpen={connectModalState.isOpen}
+        onClose={() => setConnectModalState({ ...connectModalState, isOpen: false })}
+        sourceId={connectModalState.sourceId}
+        initialUri={uri}
+        onConnect={handleConnectSubmit}
+      />
     </div >
   );
 }
