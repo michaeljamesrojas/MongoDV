@@ -178,6 +178,7 @@ function App() {
       setCanvasDocuments(prev => [...prev, {
         _id: doc._id || Math.random().toString(36).substr(2, 9),
         data: doc,
+        collection: selectedCollection?.col || 'Unknown',
         x: 100 + (prev.length % 5) * 40,
         y: 100 + (prev.length % 5) * 40
       }]);
@@ -189,6 +190,24 @@ function App() {
     setCanvasDocuments(prev => prev.map(d =>
       d._id === id ? { ...d, x, y } : d
     ));
+  };
+
+  const handleCloneCanvasDocument = (id) => {
+    const docToClone = canvasDocuments.find(d => d._id === id);
+    if (!docToClone) return;
+
+    const newDoc = {
+      ...docToClone,
+      _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
+      x: docToClone.x + 20,
+      y: docToClone.y + 20
+    };
+
+    setCanvasDocuments(prev => [...prev, newDoc]);
+  };
+
+  const handleDeleteCanvasDocument = (id) => {
+    setCanvasDocuments(prev => prev.filter(d => d._id !== id));
   };
 
   const handleConnectRequest = (id) => {
@@ -487,6 +506,8 @@ function App() {
                     documents={canvasDocuments}
                     onUpdatePosition={handleUpdateCanvasPosition}
                     onConnect={handleConnectRequest}
+                    onClone={handleCloneCanvasDocument}
+                    onDelete={handleDeleteCanvasDocument}
                   />
                 ) : (
                   <>

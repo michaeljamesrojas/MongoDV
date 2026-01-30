@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect }) => {
+const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
@@ -65,9 +65,6 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect }) => {
                 left: position.x,
                 top: position.y,
                 // Removed maxHeight to allow infinite resizing
-                // Removed overflow: auto (unless we want internal scroll) - let's keep auto if content is HUGE but box is small
-                // But for "infinitely resizable" usually means the box grows.
-                // If we want box to grow, we shouldn't set maxHeight.
                 zIndex: isDragging ? 1000 : 10,
                 boxShadow: isDragging ? '0 10px 25px rgba(0,0,0,0.5)' : '0 4px 6px rgba(0,0,0,0.1)',
                 transition: isDragging ? 'none' : 'box-shadow 0.2s',
@@ -92,16 +89,70 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect }) => {
                     borderBottom: '1px solid rgba(255,255,255,0.05)',
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                     cursor: isDragging ? 'grabbing' : 'grab',
                     userSelect: 'none',
                     flexShrink: 0
                 }}
             >
-                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                    ID: {doc.data._id || 'Unknown'}
-                </span>
-                <div style={{ fontSize: '1rem', opacity: 0.5 }}>⠿</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {doc.collection && (
+                        <span style={{
+                            fontSize: '0.65rem',
+                            color: 'var(--primary)',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '2px'
+                        }}>
+                            {doc.collection}
+                        </span>
+                    )}
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
+                        ID: {doc.data._id || 'Unknown'}
+                    </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <button
+                        title="Clone"
+                        onClick={(e) => { e.stopPropagation(); onClone && onClone(doc._id); }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                    >
+                        <span style={{ fontSize: '0.9rem' }}>⎘</span>
+                    </button>
+                    <button
+                        title="Delete"
+                        onClick={(e) => { e.stopPropagation(); onDelete && onDelete(doc._id); }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                    >
+                        <span style={{ fontSize: '0.9rem' }}>✕</span>
+                    </button>
+                </div>
             </div>
 
             <div style={{ flex: 1 }}>
@@ -111,7 +162,7 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect }) => {
     );
 };
 
-const Canvas = ({ documents, onUpdatePosition, onConnect }) => {
+const Canvas = ({ documents, onUpdatePosition, onConnect, onClone, onDelete }) => {
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [isPanning, setIsPanning] = useState(false);
@@ -315,6 +366,8 @@ const Canvas = ({ documents, onUpdatePosition, onConnect }) => {
                                 onUpdatePosition={onUpdatePosition}
                                 zoom={zoom}
                                 onConnect={onConnect}
+                                onClone={onClone}
+                                onDelete={onDelete}
                             />
                         ))}
                     </ConnectionContext.Provider>

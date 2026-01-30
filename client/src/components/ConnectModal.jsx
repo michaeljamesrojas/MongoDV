@@ -30,7 +30,8 @@ const ConnectModal = ({ isOpen, onClose, sourceId, initialUri, onConnect }) => {
         if (dbName) {
             try {
                 const data = await listCollections(initialUri, dbName);
-                setCollections(data.collections);
+                const sortedCollections = data.collections.sort((a, b) => a.name.localeCompare(b.name));
+                setCollections(sortedCollections);
             } catch (err) {
                 console.error("Failed to fetch collections", err);
             }
