@@ -4,6 +4,31 @@ import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import { getColorFromId } from '../utils/colors';
 
+const getValueByPath = (obj, path) => {
+    if (!path) return obj;
+    const parts = path.split('.');
+    let current = obj;
+    for (const part of parts) {
+        if (current === null || current === undefined) return undefined;
+        current = current[part];
+    }
+    return current;
+};
+
+const getDateFromStableId = (docMap, stableId) => {
+    if (!stableId) return null;
+    // format: date-{docId}-{path}
+    const match = stableId.match(/^date-([^-]+)-(.*)$/);
+    if (!match) return null;
+    const [, docId, path] = match;
+    const doc = docMap instanceof Map ? docMap.get(docId) : (Array.isArray(docMap) ? docMap.find(d => d._id === docId) : null);
+    if (!doc) return null;
+    const val = getValueByPath(doc.data, path);
+    if (!val) return null;
+    const date = new Date(val);
+    return isNaN(date.getTime()) ? null : date;
+};
+
 // Managed separately to avoid Canvas re-rendering on every frame
 const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {} }) => {
     // Track dimmed document IDs for line dimming
@@ -106,8 +131,20 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                     });
                 });
 
+                const docMap = new Map();
+                documents.forEach(d => docMap.set(d._id, d));
+
                 // 2. Gap Node Connections
                 gapNodes.forEach(node => {
+                    let liveText = node.text;
+                    if (node.sourceId && node.targetId) {
+                        const startDate = getDateFromStableId(docMap, node.sourceId);
+                        const endDate = getDateFromStableId(docMap, node.targetId);
+                        if (startDate && endDate) {
+                            liveText = calculateTimeGap(startDate, endDate);
+                        }
+                    }
+
                     // Start -> GapNode
                     const sourceEl = document.getElementById(node.sourceId);
 
@@ -125,7 +162,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                                 y1: sourcePos.y,
                                 x2: gapScreenX,
                                 y2: gapScreenY,
-                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                                color: liveText.startsWith('After:') ? '#4ade80' : '#f87171'
                             });
                         }
                     }
@@ -135,7 +172,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                     if (targetEl) {
                         const targetRect = targetEl.getBoundingClientRect();
                         if (targetRect.width > 0) {
-                            const targetPos = getCanvasCoords(targetRect, 'right');
+                            const targetPos = getCanvasCoords(targetRect, 'left');
 
                             const gapScreenX = node.x * zoom + pan.x;
                             const gapScreenY = node.y * zoom + pan.y;
@@ -146,7 +183,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                                 y1: gapScreenY,
                                 x2: targetPos.x,
                                 y2: targetPos.y,
-                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                                color: liveText.startsWith('After:') ? '#4ade80' : '#f87171'
                             });
                         }
                     }
@@ -417,7 +454,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
     );
 });
 
-const DraggableGapNode = memo(({ node, zoom, onUpdatePosition, onDelete }) => {
+const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete }) => {
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 });
     const nodeStart = useRef({ x: 0, y: 0 });
@@ -461,7 +498,7 @@ const DraggableGapNode = memo(({ node, zoom, onUpdatePosition, onDelete }) => {
                 left: node.x,
                 top: node.y,
                 transform: 'translate(-50%, -50%)',
-                background: node.text.startsWith('+') ? '#4ade80' : '#f87171',
+                background: text.startsWith('After:') ? '#4ade80' : '#f87171',
                 color: '#0f172a',
                 padding: '4px 12px',
                 borderRadius: '6px',
@@ -478,7 +515,7 @@ const DraggableGapNode = memo(({ node, zoom, onUpdatePosition, onDelete }) => {
                 gap: '8px'
             }}
         >
-            {node.text}
+            {text}
             <button
                 onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
                 style={{
@@ -549,6 +586,13 @@ const Canvas = ({
     const [backdropToggleMode, setBackdropToggleMode] = useState(false);
     const [canvasContextMenu, setCanvasContextMenu] = useState(null); // { x, y } for canvas right-click menu
     const [backdropMouseDown, setBackdropMouseDown] = useState(false); // Track if mouse is held down in backdrop mode
+
+    // Memoized Map of documents for efficient lookup by ID
+    const docMap = useMemo(() => {
+        const map = new Map();
+        documents.forEach(d => map.set(d._id, d));
+        return map;
+    }, [documents]);
 
     // Keyboard listeners
     useEffect(() => {
@@ -1069,15 +1113,26 @@ const Canvas = ({
                             />
                         ))}
 
-                        {gapNodes.map(node => (
-                            <DraggableGapNode
-                                key={node.id}
-                                node={node}
-                                zoom={zoom}
-                                onUpdatePosition={onUpdateGapNodePosition}
-                                onDelete={onDeleteGapNode}
-                            />
-                        ))}
+                        {gapNodes.map(node => {
+                            let liveText = node.text;
+                            if (node.sourceId && node.targetId) {
+                                const startDate = getDateFromStableId(docMap, node.sourceId);
+                                const endDate = getDateFromStableId(docMap, node.targetId);
+                                if (startDate && endDate) {
+                                    liveText = calculateTimeGap(startDate, endDate);
+                                }
+                            }
+                            return (
+                                <DraggableGapNode
+                                    key={node.id}
+                                    node={node}
+                                    text={liveText}
+                                    zoom={zoom}
+                                    onUpdatePosition={onUpdateGapNodePosition}
+                                    onDelete={onDeleteGapNode}
+                                />
+                            );
+                        })}
                     </ConnectionContext.Provider>
                 </div>
             </div>
@@ -1318,6 +1373,11 @@ const Canvas = ({
 const calculateTimeGap = (startDate, endDate) => {
     let start = new Date(startDate);
     let end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return "Invalid Date";
+    }
+
     let sign = '+';
 
     if (start > end) {
@@ -1366,6 +1426,8 @@ const calculateTimeGap = (startDate, endDate) => {
     let minutes = Math.floor(diffMs / (1000 * 60));
     diffMs -= minutes * 1000 * 60;
     let seconds = Math.floor(diffMs / 1000);
+    diffMs -= seconds * 1000;
+    let milliseconds = diffMs;
 
     const parts = [];
     if (years > 0) parts.push(`${years}y`);
@@ -1373,9 +1435,11 @@ const calculateTimeGap = (startDate, endDate) => {
     if (days > 0) parts.push(`${days}d`);
     if (hours > 0) parts.push(`${hours}h`);
     if (minutes > 0) parts.push(`${minutes}m`);
-    if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+    if (seconds > 0) parts.push(`${seconds}s`);
+    if (milliseconds > 0 || parts.length === 0) parts.push(`${milliseconds}ms`);
 
-    return `${sign} ${parts.join(' ')}`;
+    const prefix = sign === '+' ? 'After:' : 'Before:';
+    return `${prefix} ${parts.join(' ')}`;
 };
 
 export default Canvas;
