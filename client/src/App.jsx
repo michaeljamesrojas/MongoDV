@@ -33,6 +33,8 @@ function App() {
   const [highlightedFields, setHighlightedFields] = useState(new Set()); // Set<"collection:path">
   const [hoistedFields, setHoistedFields] = useState(new Set()); // Set<"collection:path">
   const [arrowDirection, setArrowDirection] = useState('forward'); // 'forward' | 'reverse'
+  const [showBackdroppedArrows, setShowBackdroppedArrows] = useState(true);
+  const [showAllArrows, setShowAllArrows] = useState(true);
   const [showCanvas, setShowCanvas] = useState(false);
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
   const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
@@ -395,6 +397,8 @@ function App() {
       highlightedFields: Array.from(highlightedFields), // Convert Set to Array for JSON serialization
       hoistedFields: Array.from(hoistedFields), // Convert Set to Array for JSON serialization
       arrowDirection: arrowDirection,
+      showBackdroppedArrows: showBackdroppedArrows,
+      showAllArrows: showAllArrows,
       idColorOverrides: idColorOverrides,
       timestamp: Date.now()
     };
@@ -426,7 +430,10 @@ function App() {
       if (save.markedSources) setMarkedSources(new Set(save.markedSources)); // Restore Set from Array
       if (save.highlightedFields) setHighlightedFields(new Set(save.highlightedFields)); // Restore Set from Array
       if (save.hoistedFields) setHoistedFields(new Set(save.hoistedFields)); // Restore Set from Array
+      if (save.hoistedFields) setHoistedFields(new Set(save.hoistedFields)); // Restore Set from Array
       if (save.arrowDirection) setArrowDirection(save.arrowDirection);
+      if (save.showBackdroppedArrows !== undefined) setShowBackdroppedArrows(save.showBackdroppedArrows);
+      if (save.showAllArrows !== undefined) setShowAllArrows(save.showAllArrows);
       if (save.idColorOverrides) setIdColorOverrides(save.idColorOverrides);
       else setIdColorOverrides({});
       setCurrentSaveName(name); // Track the loaded save name
@@ -772,6 +779,10 @@ function App() {
                 onHoistedFieldsChange={setHoistedFields}
                 arrowDirection={arrowDirection}
                 onArrowDirectionChange={setArrowDirection}
+                showBackdroppedArrows={showBackdroppedArrows}
+                onShowBackdroppedArrowsChange={setShowBackdroppedArrows}
+                showAllArrows={showAllArrows}
+                onShowAllArrowsChange={setShowAllArrows}
                 idColorOverrides={idColorOverrides}
                 onIdColorChange={handleIdColorChange}
               />

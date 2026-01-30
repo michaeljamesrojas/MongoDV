@@ -31,7 +31,7 @@ const getDateFromStableId = (docMap, stableId) => {
 };
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {} }) => {
+const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true }) => {
     // Track dimmed document IDs for line dimming
     const dimmedDocIds = useMemo(() => {
         const set = new Set();
@@ -47,6 +47,11 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
         const updateLines = () => {
             // Only update if canvas is visible and we have nodes
             if (!canvasRef.current || nodeRegistry.current.size === 0 && gapNodes.length === 0) {
+                if (lines.length > 0) setLines([]);
+                return;
+            }
+
+            if (!showAllArrows) {
                 if (lines.length > 0) setLines([]);
                 return;
             }
@@ -197,7 +202,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides]);
+    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides, showAllArrows, showBackdroppedArrows]);
 
     // Get unique values to create markers for
     const uniqueValues = useMemo(() => {
@@ -261,7 +266,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                         y2={line.y2}
                         stroke={line.color || "#fbbf24"}
                         strokeWidth="2"
-                        strokeOpacity={line.dimmed ? 0.1 : 0.6}
+                        strokeOpacity={line.dimmed ? (showBackdroppedArrows ? 0.1 : 0) : 0.6}
                         markerEnd={markerUrl}
                         style={{ transition: 'stroke-opacity 0.2s' }}
                     />
@@ -737,6 +742,10 @@ const Canvas = ({
     onHoistedFieldsChange,
     arrowDirection = 'forward',
     onArrowDirectionChange,
+    showBackdroppedArrows = true,
+    onShowBackdroppedArrowsChange,
+    showAllArrows = true,
+    onShowAllArrowsChange,
     onToggleBackdrop,
     onUpdateData,
     onAddCustomDocument,
@@ -1520,6 +1529,8 @@ const Canvas = ({
                 canvasRef={canvasRef}
                 documents={documents}
                 idColorOverrides={idColorOverrides}
+                showBackdroppedArrows={showBackdroppedArrows}
+                showAllArrows={showAllArrows}
             />
 
             {/* Date Selection Indicators */}
@@ -1809,6 +1820,49 @@ const Canvas = ({
                     }}
                 >
                     ⇄
+                </button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
+                <button
+                    onClick={() => onShowBackdroppedArrowsChange && onShowBackdroppedArrowsChange(prev => !prev)}
+                    title={showBackdroppedArrows ? "Hide Backdropped Arrows" : "Show Backdropped Arrows"}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: showBackdroppedArrows ? '#94a3b8' : '#64748b',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        position: 'relative'
+                    }}
+                >
+                    👁️
+                    {!showBackdroppedArrows && (
+                        <div style={{
+                            position: 'absolute',
+                            width: '100%',
+                            height: '2px',
+                            background: '#f87171',
+                            transform: 'rotate(45deg)',
+                            top: '50%',
+                            left: 0
+                        }} />
+                    )}
+                </button>
+                <button
+                    onClick={() => onShowAllArrowsChange && onShowAllArrowsChange(prev => !prev)}
+                    title={showAllArrows ? "Hide All Arrows" : "Show All Arrows"}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: showAllArrows ? '#94a3b8' : '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center'
+                    }}
+                >
+                    {showAllArrows ? '⤡' : '✕'}
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button onClick={() => { onViewStateChange({ pan: { x: 0, y: 0 }, zoom: 1 }); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
