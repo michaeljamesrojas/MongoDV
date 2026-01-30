@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
+import { getColorFromId } from '../utils/colors';
 
 // Managed separately to avoid Canvas re-rendering on every frame
 const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents }) => {
@@ -82,14 +83,17 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                             // Check if either connected node is dimmed
                             const isDimmed = isNodeDimmed(refNode.ref) || isNodeDimmed(defNode.ref);
 
+                            const color = getColorFromId(refNode.value);
+
                             newLines.push({
                                 id: `${nodeRegistry.current.get(refNode.ref)?.value}-${refNode.value}-${defNode.value}`, // More stable ID structure could help but index is ok for now
                                 x1: isReverse ? end.x : start.x,
                                 y1: isReverse ? end.y : start.y,
                                 x2: isReverse ? start.x : end.x,
                                 y2: isReverse ? start.y : end.y,
-                                color: '#fbbf24',
-                                dimmed: isDimmed
+                                color: color,
+                                dimmed: isDimmed,
+                                value: refNode.value // Store value to link to color/marker
                             });
                         });
                     });
@@ -150,6 +154,15 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
         return () => cancelAnimationFrame(frameRef.current);
     }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds]);
 
+    // Get unique values to create markers for
+    const uniqueValues = useMemo(() => {
+        const values = new Set();
+        lines.forEach(line => {
+            if (line.value) values.add(line.value);
+        });
+        return Array.from(values);
+    }, [lines]);
+
     return (
         <svg style={{
             position: 'absolute',
@@ -161,24 +174,54 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
             zIndex: 5
         }}>
             <defs>
-                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <marker id="arrowhead-default" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                     <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" opacity="0.5" />
                 </marker>
+                <marker id="marker-plus" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#4ade80" opacity="0.5" />
+                </marker>
+                <marker id="marker-minus" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#f87171" opacity="0.5" />
+                </marker>
+                {uniqueValues.map(val => (
+                    <marker
+                        key={`marker-${val}`}
+                        id={`marker-${val}`}
+                        markerWidth="10"
+                        markerHeight="7"
+                        refX="9"
+                        refY="3.5"
+                        orient="auto"
+                    >
+                        <polygon points="0 0, 10 3.5, 0 7" fill={getColorFromId(val)} opacity="0.5" />
+                    </marker>
+                ))}
             </defs>
-            {lines.map((line, i) => (
-                <line
-                    key={i}
-                    x1={line.x1}
-                    y1={line.y1}
-                    x2={line.x2}
-                    y2={line.y2}
-                    stroke={line.color || "#fbbf24"}
-                    strokeWidth="2"
-                    strokeOpacity={line.dimmed ? 0.1 : 0.6}
-                    markerEnd="url(#arrowhead)"
-                    style={{ transition: 'stroke-opacity 0.2s' }}
-                />
-            ))}
+            {lines.map((line, i) => {
+                let markerUrl = "url(#arrowhead-default)";
+                if (line.value) {
+                    markerUrl = `url(#marker-${line.value})`;
+                } else if (line.color === '#4ade80') {
+                    markerUrl = "url(#marker-plus)";
+                } else if (line.color === '#f87171') {
+                    markerUrl = "url(#marker-minus)";
+                }
+
+                return (
+                    <line
+                        key={i}
+                        x1={line.x1}
+                        y1={line.y1}
+                        x2={line.x2}
+                        y2={line.y2}
+                        stroke={line.color || "#fbbf24"}
+                        strokeWidth="2"
+                        strokeOpacity={line.dimmed ? 0.1 : 0.6}
+                        markerEnd={markerUrl}
+                        style={{ transition: 'stroke-opacity 0.2s' }}
+                    />
+                );
+            })}
         </svg>
     );
 });

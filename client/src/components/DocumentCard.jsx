@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useConnection } from '../contexts/ConnectionContext';
+import { getColorFromId } from '../utils/colors';
 
 const isObjectId = (value) => {
     return typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
@@ -53,7 +54,7 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, c
                         }
                     }}
                     style={{
-                        color: '#fbbf24',
+                        color: getColorFromId(value),
                         fontFamily: 'monospace',
                         cursor: onConnect ? 'pointer' : 'text',
                         textDecoration: onConnect ? 'underline' : 'none',
@@ -95,11 +96,11 @@ const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, c
                 <span
                     ref={spanRef}
                     style={{
-                        color: '#a5f3fc',
+                        color: getColorFromId(value),
                         wordBreak: 'break-word',
                         textDecoration: 'underline',
                         textDecorationStyle: 'dotted',
-                        textDecorationColor: '#fbbf24'
+                        textDecorationColor: getColorFromId(value)
                     }}
                 >
                     "{value}"
@@ -289,7 +290,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                 }}
                                 style={{
                                     fontWeight: 600,
-                                    color: isHighlighted ? '#34d399' : (key === '_id' ? 'var(--primary)' : '#94a3b8'),
+                                    color: isHighlighted ? '#34d399' : (key === '_id' ? getColorFromId(value) : '#94a3b8'),
                                     fontSize: '0.85rem',
                                     whiteSpace: 'nowrap',
                                     cursor: 'context-menu',
