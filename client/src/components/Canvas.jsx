@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
+import { useToast } from '../contexts/ToastContext';
 import { getColorFromId } from '../utils/colors';
 
 const getValueByPath = (obj, path) => {
@@ -580,6 +581,7 @@ const Canvas = ({
     idColorOverrides = {},
     onIdColorChange
 }) => {
+    const { showToast } = useToast();
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
 
@@ -1379,6 +1381,7 @@ const Canvas = ({
                                 const value = getValueByPath(doc.data, contextMenu.path);
                                 const text = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
                                 navigator.clipboard.writeText(text);
+                                showToast('Value copied to clipboard', 'info', 2000);
                             }
                             setContextMenu(null);
                         }}
@@ -1409,6 +1412,7 @@ const Canvas = ({
                                 const key = contextMenu.path.split('.').pop();
                                 const valueText = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
                                 navigator.clipboard.writeText(`${key}: ${valueText}`);
+                                showToast('Key and Value copied to clipboard', 'info', 2000);
                             }
                             setContextMenu(null);
                         }}

@@ -6,6 +6,8 @@ import Canvas from './components/Canvas';
 import QueryBuilder from './components/QueryBuilder';
 import ConnectModal from './components/ConnectModal';
 import SaveLoadModal from './components/SaveLoadModal';
+import Toaster from './components/Toaster';
+import { useToast } from './contexts/ToastContext';
 import './index.css';
 
 function App() {
@@ -38,6 +40,8 @@ function App() {
   const [currentSaveName, setCurrentSaveName] = useState(null); // Track which save is currently loaded
   const [idColorOverrides, setIdColorOverrides] = useState({}); // { [id]: variationIndex }
 
+  const { showToast } = useToast();
+
   const handleConnect = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -47,8 +51,10 @@ function App() {
       const data = await listDatabases(uri);
       setDatabases(data.databases);
       setIsConnected(true);
+      showToast('Connected successfully', 'success');
     } catch (err) {
       setError(err.message);
+      showToast('Failed to connect', 'error');
     } finally {
       setLoading(false);
     }
@@ -155,16 +161,24 @@ function App() {
   const handleAddToCanvas = useCallback((doc) => {
     setCanvasDocuments(prev => {
       if (prev.find(d => d._id === doc._id)) return prev;
+
+      // Calculate center of current viewport
+      const W = window.innerWidth - 300; // Sidebar is 300px
+      const H = window.innerHeight;
+      const centerX = (W / 2 - canvasView.pan.x) / canvasView.zoom;
+      const centerY = (H / 2 - canvasView.pan.y) / canvasView.zoom;
+
+      showToast('Added to canvas', 'success', 2000);
       return [...prev, {
         _id: doc._id || Math.random().toString(36).substr(2, 9),
         data: doc,
         collection: selectedCollection?.col || 'Unknown',
-        x: 100 + (prev.length % 5) * 40,
-        y: 100 + (prev.length % 5) * 40,
+        x: centerX - 175, // Center the 350px card
+        y: centerY - 100,
         expandedPaths: []
       }];
     });
-  }, [selectedCollection]);
+  }, [selectedCollection, canvasView, showToast]);
 
   const handleAddCustomDocument = useCallback((data, x, y) => {
     const newId = data._id || `custom-${Math.random().toString(36).substr(2, 9)}`;
@@ -278,19 +292,42 @@ function App() {
     if (!newDocs || newDocs.length === 0) return;
 
     // Add new docs to canvas
-    // TODO: Ideally position them near the source card, but for now just random/cascade
     setCanvasDocuments(prev => {
       const existingIds = new Set(prev.map(d => d._id));
+
+      // Find source document position if available
+      const sourceDoc = prev.find(d => d._id === connectModalState.sourceId);
+      let baseX = 200;
+      let baseY = 200;
+
+      if (sourceDoc) {
+        baseX = sourceDoc.x + 400; // Position to the right of source (card is 350px wide)
+        baseY = sourceDoc.y;
+      } else {
+        // Fallback to center of viewport
+        const W = window.innerWidth - 300;
+        const H = window.innerHeight;
+        baseX = (W / 2 - canvasView.pan.x) / canvasView.zoom - 175;
+        baseY = (H / 2 - canvasView.pan.y) / canvasView.zoom - 100;
+      }
+
       const addedDocs = newDocs
         .filter(d => !existingIds.has(d._id))
         .map((doc, idx) => ({
           _id: doc._id || Math.random().toString(36).substr(2, 9),
           data: doc,
           collection: collectionName || 'Unknown',
-          x: 200 + (prev.length % 5) * 40 + idx * 20, // Offset slightly
-          y: 200 + (prev.length % 5) * 40 + idx * 20,
+          x: baseX + idx * 30, // Offset each new doc slightly
+          y: baseY + idx * 30,
           expandedPaths: []
         }));
+
+      if (addedDocs.length > 0) {
+        showToast(`Connected ${addedDocs.length} document${addedDocs.length > 1 ? 's' : ''}`, 'success', 2000);
+      } else if (newDocs.length > 0) {
+        showToast('Documents already on canvas', 'info', 2000);
+      }
+
       return [...prev, ...addedDocs];
     });
   };
@@ -341,7 +378,9 @@ function App() {
     localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
     setCurrentSaveName(name); // Track the saved name
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
-    // Optional: Toast or notification
+
+    // Show toast
+    showToast(`Saved "${name}"`, 'success', 2000);
   };
 
   const handleQuickSave = () => {
@@ -368,6 +407,7 @@ function App() {
       if (save.idColorOverrides) setIdColorOverrides(save.idColorOverrides);
       else setIdColorOverrides({});
       setCurrentSaveName(name); // Track the loaded save name
+      showToast(`Loaded "${name}"`, 'info', 2000);
     }
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
   };
@@ -376,6 +416,7 @@ function App() {
     const saves = getSavesFromStorage();
     delete saves[name];
     localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
+    showToast(`Deleted save "${name}"`, 'warning', 2000);
 
     // Refresh list
     const list = Object.entries(saves).map(([name, data]) => ({
@@ -842,8 +883,7 @@ function App() {
         </>
       ) : (
         <ConnectionScreen />
-      )
-      }
+      )}
       <ConnectModal
         isOpen={connectModalState.isOpen}
         onClose={() => setConnectModalState({ ...connectModalState, isOpen: false })}
@@ -859,7 +899,9 @@ function App() {
         onConfirm={saveLoadModalState.mode === 'save' ? handleConfirmSave : handleConfirmLoad}
         onDelete={handleDeleteSave}
       />
-    </div >
+
+      <Toaster />
+    </div>
   );
 }
 
