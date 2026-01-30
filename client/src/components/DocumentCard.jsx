@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useConnection } from '../contexts/ConnectionContext';
 
 const isObjectId = (value) => {
     return typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
@@ -10,7 +11,18 @@ const isDate = (value) => {
         !isNaN(Date.parse(value));
 };
 
-const ValueDisplay = ({ value, onConnect }) => {
+const ValueDisplay = ({ value, onConnect, isIdField }) => {
+    const { registerNode, unregisterNode } = useConnection();
+    const spanRef = useRef(null);
+
+    useEffect(() => {
+        if (typeof value === 'string' && isObjectId(value) && spanRef.current) {
+            const type = isIdField ? 'def' : 'ref';
+            registerNode(value, type, spanRef.current);
+            return () => unregisterNode(spanRef.current);
+        }
+    }, [value, isIdField, registerNode, unregisterNode]);
+
     if (value === null) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>null</span>;
     if (value === undefined) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>undefined</span>;
 
@@ -26,6 +38,7 @@ const ValueDisplay = ({ value, onConnect }) => {
         if (isObjectId(value)) {
             return (
                 <span
+                    ref={spanRef}
                     onClick={(e) => {
                         if (onConnect) {
                             e.stopPropagation();
@@ -143,7 +156,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect }) => {
                                 fontSize: '0.85rem',
                                 whiteSpace: 'nowrap'
                             }}>{key}:</span>
-                            <ValueDisplay value={value} onConnect={onConnect} />
+                            <ValueDisplay value={value} onConnect={onConnect} isIdField={key === '_id'} />
                         </div>
                     );
                 })}

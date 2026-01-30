@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import DocumentCard from './DocumentCard';
+import { ConnectionContext } from '../contexts/ConnectionContext';
 
 const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
@@ -114,6 +115,95 @@ const Canvas = ({ documents, onUpdatePosition, onConnect }) => {
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [isPanning, setIsPanning] = useState(false);
+    const canvasRef = useRef(null);
+
+    // Connection Logic
+    const nodeRegistry = useRef(new Map()); // Map<id, { type: 'def'|'ref', ref: HTMLElement, value: string }>
+    const [lines, setLines] = useState([]);
+    const frameRef = useRef();
+
+    // Register/Unregister nodes
+    const registerNode = (value, type, ref) => {
+        // We use a unique key because multiple refs might verify to same value? 
+        // No, we need to store them by reference actually.
+        // Or generate a unique ID for each node.
+        // Let's use the object reference of the DOM node as key if possible, or just a Symbol.
+        // But map keys can be objects.
+        if (!ref) return;
+        nodeRegistry.current.set(ref, { value, type, ref });
+    };
+
+    const unregisterNode = (ref) => {
+        nodeRegistry.current.delete(ref);
+    };
+
+    const contextValue = { registerNode, unregisterNode };
+
+    // Line Update Loop
+    useEffect(() => {
+        const updateLines = () => {
+            const newLines = [];
+            const nodes = Array.from(nodeRegistry.current.values());
+
+            // Group by value
+            const grouped = {};
+            nodes.forEach(node => {
+                if (!grouped[node.value]) grouped[node.value] = { defs: [], refs: [] };
+                if (node.type === 'def') grouped[node.value].defs.push(node);
+                else grouped[node.value].refs.push(node);
+            });
+
+            // Calculate connections
+            // Strategy: Connect every Ref to every Def? Or just nearest?
+            // For now, simple: Connect all Refs to the first Def found? 
+            // Or if multiple Defs (duplicates), maybe connect to nearest?
+            // Let's just connect to ALL Defs for now to be distinct.
+
+            if (canvasRef.current) {
+                const canvasRect = canvasRef.current.getBoundingClientRect();
+
+                Object.values(grouped).forEach(({ defs, refs }) => {
+                    if (defs.length === 0 || refs.length === 0) return;
+
+                    refs.forEach(refNode => {
+                        const refRect = refNode.ref.getBoundingClientRect();
+
+                        defs.forEach(defNode => {
+                            const defRect = defNode.ref.getBoundingClientRect();
+
+                            // Check if elements are visible/attached
+                            if (refRect.width === 0 || defRect.width === 0) return;
+
+                            // Calculate centers relative to canvas container
+                            const start = {
+                                x: refRect.left - canvasRect.left + refRect.width / 2,
+                                y: refRect.top - canvasRect.top + refRect.height / 2
+                            };
+                            const end = {
+                                x: defRect.left - canvasRect.left + defRect.width / 2,
+                                y: defRect.top - canvasRect.top + defRect.height / 2
+                            };
+
+                            newLines.push({
+                                id: `${nodeRegistry.current.get(refNode.ref)?.value}-${Math.random()}`,
+                                x1: start.x,
+                                y1: start.y,
+                                x2: end.x,
+                                y2: end.y
+                            });
+                        });
+                    });
+                });
+            }
+
+            setLines(newLines);
+            frameRef.current = requestAnimationFrame(updateLines);
+        };
+
+        updateLines();
+        return () => cancelAnimationFrame(frameRef.current);
+    }, [documents, pan, zoom]); // Re-start loop if these change? Actually loop should just run always.
+    // Dependencies: empty [] means run once. But we access `nodeRegistry` ref which is mutable. UseEffect is fine.
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -164,7 +254,7 @@ const Canvas = ({ documents, onUpdatePosition, onConnect }) => {
     };
 
     return (
-        <div style={{
+        <div ref={canvasRef} style={{
             width: '100%',
             height: '100%',
             overflow: 'hidden',
@@ -198,36 +288,69 @@ const Canvas = ({ documents, onUpdatePosition, onConnect }) => {
             }}>
                 {/* Make sure children have pointer events */}
                 <div style={{ pointerEvents: 'auto' }}>
-                    {documents.length === 0 && (
-                        <div style={{
-                            position: 'absolute',
-                            // We want this centered in the viewport, so we need to counter-act the transform
-                            // Or just put it outside the transform container. 
-                            // Putting it here means it moves with the canvas, which is consistent.
-                            left: (window.innerWidth / 2 - pan.x) / zoom, // rough centering logic
-                            top: (window.innerHeight / 2 - pan.y) / zoom,
-                            transform: 'translate(-50%, -50%)',
-                            textAlign: 'center',
-                            color: '#475569',
-                            pointerEvents: 'none'
-                        }}>
-                            <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>⧉</div>
-                            <h3>Canvas is empty</h3>
-                            <p style={{ fontSize: '0.9rem' }}>Send documents here from the collection view</p>
-                        </div>
-                    )}
+                    <ConnectionContext.Provider value={contextValue}>
+                        {documents.length === 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                // We want this centered in the viewport, so we need to counter-act the transform
+                                // Or just put it outside the transform container. 
+                                // Putting it here means it moves with the canvas, which is consistent.
+                                left: (window.innerWidth / 2 - pan.x) / zoom, // rough centering logic
+                                top: (window.innerHeight / 2 - pan.y) / zoom,
+                                transform: 'translate(-50%, -50%)',
+                                textAlign: 'center',
+                                color: '#475569',
+                                pointerEvents: 'none'
+                            }}>
+                                <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>⧉</div>
+                                <h3>Canvas is empty</h3>
+                                <p style={{ fontSize: '0.9rem' }}>Send documents here from the collection view</p>
+                            </div>
+                        )}
 
-                    {documents.map(doc => (
-                        <DraggableCard
-                            key={doc._id}
-                            doc={doc}
-                            onUpdatePosition={onUpdatePosition}
-                            zoom={zoom}
-                            onConnect={onConnect}
-                        />
-                    ))}
+                        {documents.map(doc => (
+                            <DraggableCard
+                                key={doc._id}
+                                doc={doc}
+                                onUpdatePosition={onUpdatePosition}
+                                zoom={zoom}
+                                onConnect={onConnect}
+                            />
+                        ))}
+                    </ConnectionContext.Provider>
                 </div>
             </div>
+
+            {/* Connection Lines Layer (Viewport coordinate space) */}
+            <svg style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 5 // Below cards (cards are z-index 10 or 1000)
+            }}>
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" opacity="0.5" />
+                    </marker>
+                </defs>
+                {lines.map((line, i) => (
+                    <line
+                        key={i}
+                        x1={line.x1}
+                        y1={line.y1}
+                        x2={line.x2}
+                        y2={line.y2}
+                        stroke="#fbbf24"
+                        strokeWidth="2"
+                        strokeOpacity="0.4"
+                        markerEnd="url(#arrowhead)"
+                    />
+                ))}
+            </svg>
+
 
             {/* HUD / Controls */}
             <div style={{
