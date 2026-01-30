@@ -163,7 +163,7 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDele
     );
 };
 
-const DraggableGapNode = ({ node, zoom, onUpdatePosition }) => {
+const DraggableGapNode = ({ node, zoom, onUpdatePosition, onDelete }) => {
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 });
     const nodeStart = useRef({ x: 0, y: 0 });
@@ -218,15 +218,51 @@ const DraggableGapNode = ({ node, zoom, onUpdatePosition }) => {
                 boxShadow: isDragging ? '0 8px 16px rgba(0,0,0,0.3)' : '0 4px 6px rgba(0,0,0,0.2)',
                 border: '1px solid rgba(255,255,255,0.2)',
                 userSelect: 'none',
-                minWidth: 'max-content'
+                minWidth: 'max-content',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
             }}
         >
             {node.text}
+            <button
+                onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
+                style={{
+                    background: 'rgba(0,0,0,0.1)',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '16px',
+                    height: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#0f172a',
+                    fontSize: '0.7rem',
+                    padding: 0
+                }}
+            >
+                ✕
+            </button>
         </div>
     );
 };
 
-const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onConnect, onClone, onDelete, onSave, onLoad }) => {
+const Canvas = ({
+    documents,
+    viewState,
+    onViewStateChange,
+    onUpdatePosition,
+    onConnect,
+    onClone,
+    onDelete,
+    onSave,
+    onLoad,
+    gapNodes = [],
+    onUpdateGapNodePosition,
+    onAddGapNode,
+    onDeleteGapNode
+}) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
 
@@ -234,22 +270,31 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
     const canvasRef = useRef(null);
 
     // Date Gap Logic
-    const [dateSelection, setDateSelection] = useState(null); // { value: Date, ref: HTMLElement }
-    const [gapNodes, setGapNodes] = useState([]); // [{ id, text, x, y, sourceRef, targetRef }]
+    const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
 
-    const handleDateClick = (dateValue, e) => {
+    const handleDateClick = (dateValue, e, stableId) => {
         const date = new Date(dateValue);
-        const targetRef = e.target; // Capturing the DOM element
+
+        // Ensure we have a valid stableId, fallback if missing
+        if (!stableId) {
+            console.warn("Missing stable ID for date click");
+            return;
+        }
 
         if (!dateSelection) {
-            setDateSelection({ value: date, ref: targetRef });
+            setDateSelection({ value: date, stableId: stableId });
         } else {
+            // Check if same date selected (deselect)
+            if (dateSelection.stableId === stableId) {
+                setDateSelection(null);
+                return;
+            }
+
             // Calculate difference
             const text = calculateTimeGap(dateSelection.value, date);
 
             // Calculate position in Canvas Coordinates
             // e.clientX is viewport. We need to convert to canvas coords.
-            // Canvas Coords = (ViewportCoords - Pan) / Zoom
             const canvasX = (e.clientX - pan.x) / zoom;
             const canvasY = (e.clientY - pan.y) / zoom;
 
@@ -258,17 +303,13 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                 text,
                 x: canvasX,
                 y: canvasY - 50, // slightly above
-                sourceRef: dateSelection.ref,
-                targetRef: targetRef
+                sourceId: dateSelection.stableId,
+                targetId: stableId
             };
 
-            setGapNodes(prev => [...prev, newGapNode]);
+            onAddGapNode(newGapNode);
             setDateSelection(null); // Reset
         }
-    };
-
-    const updateGapNodePosition = (id, x, y) => {
-        setGapNodes(prev => prev.map(node => node.id === id ? { ...node, x, y } : node));
     };
 
     // Connection Logic
@@ -340,54 +381,46 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                 // 2. Gap Node Connections
                 gapNodes.forEach(node => {
                     // Start -> GapNode
-                    if (node.sourceRef && node.sourceRef.isConnected) {
-                        const sourceRect = node.sourceRef.getBoundingClientRect();
-                        const sourcePos = getCanvasCoords(sourceRect);
+                    const sourceEl = document.getElementById(node.sourceId);
 
-                        // We need gapNode position in Viewport coords relative to canvas container,
-                        // BUT our lines are drawn in a layer that matches the content container transform? 
-                        // Wait, the SVG layer in previous implementation was 'Viewport coordinate space' (not transformed by pan/zoom?)
-                        // Let's check the SVG definition below.
-                        // SVG style: top:0, left:0, width:100%, height:100%.
-                        // The lines in previous code used: refRect.left - canvasRect.left.
-                        // This calculates position relative to the Canvas DIV.
-                        // The Canvas DIV acts as the viewport.
-                        // The SVG is inside the Canvas DIV, unscaled.
-                        // So the lines are drawn in "Screen/Container Pixels".
+                    if (sourceEl) {
+                        const sourceRect = sourceEl.getBoundingClientRect();
+                        if (sourceRect.width > 0) {
+                            const sourcePos = getCanvasCoords(sourceRect);
 
-                        // BUT, gapNode.x/y are in "World/Zoomed Coordinates".
-                        // So we must project gapNode.x/y to Screen Coords for the line drawing if lines are unscaled.
+                            const gapScreenX = node.x * zoom + pan.x;
+                            const gapScreenY = node.y * zoom + pan.y;
 
-                        // Projection: Screen = World * Zoom + Pan
-                        const gapScreenX = node.x * zoom + pan.x;
-                        const gapScreenY = node.y * zoom + pan.y;
-
-                        newLines.push({
-                            id: `${node.id} -source`,
-                            x1: sourcePos.x,
-                            y1: sourcePos.y,
-                            x2: gapScreenX,
-                            y2: gapScreenY,
-                            color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
-                        });
+                            newLines.push({
+                                id: `${node.id}-source`,
+                                x1: sourcePos.x,
+                                y1: sourcePos.y,
+                                x2: gapScreenX,
+                                y2: gapScreenY,
+                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                            });
+                        }
                     }
 
                     // GapNode -> Target
-                    if (node.targetRef && node.targetRef.isConnected) {
-                        const targetRect = node.targetRef.getBoundingClientRect();
-                        const targetPos = getCanvasCoords(targetRect);
+                    const targetEl = document.getElementById(node.targetId);
+                    if (targetEl) {
+                        const targetRect = targetEl.getBoundingClientRect();
+                        if (targetRect.width > 0) {
+                            const targetPos = getCanvasCoords(targetRect);
 
-                        const gapScreenX = node.x * zoom + pan.x;
-                        const gapScreenY = node.y * zoom + pan.y;
+                            const gapScreenX = node.x * zoom + pan.x;
+                            const gapScreenY = node.y * zoom + pan.y;
 
-                        newLines.push({
-                            id: `${node.id} -target`,
-                            x1: gapScreenX,
-                            y1: gapScreenY,
-                            x2: targetPos.x,
-                            y2: targetPos.y,
-                            color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
-                        });
+                            newLines.push({
+                                id: `${node.id}-target`,
+                                x1: gapScreenX,
+                                y1: gapScreenY,
+                                x2: targetPos.x,
+                                y2: targetPos.y,
+                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                            });
+                        }
                     }
                 });
             }
@@ -526,7 +559,8 @@ const Canvas = ({ documents, viewState, onViewStateChange, onUpdatePosition, onC
                                 key={node.id}
                                 node={node}
                                 zoom={zoom}
-                                onUpdatePosition={updateGapNodePosition}
+                                onUpdatePosition={onUpdateGapNodePosition}
+                                onDelete={onDeleteGapNode}
                             />
                         ))}
                     </ConnectionContext.Provider>

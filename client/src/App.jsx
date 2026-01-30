@@ -25,6 +25,7 @@ function App() {
   const [schema, setSchema] = useState({});
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
   const [canvasDocuments, setCanvasDocuments] = useState([]);
+  const [gapNodes, setGapNodes] = useState([]);
   const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
   const [showCanvas, setShowCanvas] = useState(false);
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
@@ -88,6 +89,12 @@ function App() {
   };
 
   const handleCollectionClick = async (dbName, colName) => {
+    setShowCanvas(false);
+
+    if (selectedCollection?.db === dbName && selectedCollection?.col === colName) {
+      return;
+    }
+
     setSelectedCollection({ db: dbName, col: colName });
     // Reset limit to default 20 when switching collections, or keep it? 
     // Let's keep it for now as it might be annoying to reset if user wants to browse with high limit.
@@ -141,6 +148,18 @@ function App() {
       }]);
     }
     // Optional: Flash a notification or something?
+  };
+
+  const handleUpdateGapNodePosition = (id, x, y) => {
+    setGapNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
+  };
+
+  const handleAddGapNode = (newNode) => {
+    setGapNodes(prev => [...prev, newNode]);
+  };
+
+  const handleDeleteGapNode = (id) => {
+    setGapNodes(prev => prev.filter(n => n.id !== id));
   };
 
   const handleUpdateCanvasPosition = (id, x, y) => {
@@ -222,8 +241,10 @@ function App() {
 
   const handleConfirmSave = (name) => {
     const saves = getSavesFromStorage();
+    // Save current state
     saves[name] = {
       documents: canvasDocuments,
+      gapNodes: gapNodes,
       view: canvasView,
       timestamp: Date.now()
     };
@@ -237,6 +258,7 @@ function App() {
     const save = saves[name];
     if (save) {
       if (save.documents) setCanvasDocuments(save.documents);
+      if (save.gapNodes) setGapNodes(save.gapNodes);
       if (save.view) setCanvasView(save.view);
     }
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
@@ -508,9 +530,13 @@ function App() {
             {showCanvas ? (
               <Canvas
                 documents={canvasDocuments}
+                gapNodes={gapNodes}
                 viewState={canvasView}
                 onViewStateChange={setCanvasView}
                 onUpdatePosition={handleUpdateCanvasPosition}
+                onUpdateGapNodePosition={handleUpdateGapNodePosition}
+                onAddGapNode={handleAddGapNode}
+                onDeleteGapNode={handleDeleteGapNode}
                 onConnect={handleConnectRequest}
                 onClone={handleCloneCanvasDocument}
                 onDelete={handleDeleteCanvasDocument}
