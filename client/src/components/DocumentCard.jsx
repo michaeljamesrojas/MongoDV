@@ -11,12 +11,12 @@ const isDate = (value) => {
         !isNaN(Date.parse(value));
 };
 
-const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path }) => {
+const ValueDisplay = ({ value, onConnect, onDateClick, isIdField, docId, path, collection }) => {
     const { registerNode, unregisterNode, markedSources } = useConnection();
     const spanRef = useRef(null);
 
-    // Check if this field is marked as a source
-    const isMarkedSource = markedSources && markedSources.has(`${docId}:${path}`);
+    // Check if this field is marked as a source (keyed by collection:path)
+    const isMarkedSource = markedSources && collection && markedSources.has(`${collection}:${path}`);
 
     useEffect(() => {
         if (spanRef.current) {
@@ -155,7 +155,7 @@ const CollapsibleField = ({ label, children, typeLabel, initialOpen = false, isO
     );
 };
 
-const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '', docId, expandedPaths, onToggleExpand }) => {
+const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '', docId, collection, expandedPaths, onToggleExpand }) => {
     // Extract ID if at root. Prefer passed docId (Wrapper ID) over data._id if available.
     const currentDocId = docId || (isRoot && data ? data._id : 'unknown');
 
@@ -189,6 +189,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                             onDateClick={onDateClick}
                                             path={currentPath}
                                             docId={currentDocId}
+                                            collection={collection}
                                             expandedPaths={expandedPaths}
                                             onToggleExpand={onToggleExpand}
                                         />
@@ -200,6 +201,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                         onDateClick={onDateClick}
                                         path={currentPath}
                                         docId={currentDocId}
+                                        collection={collection}
                                     />
                                 )}
                             </div>
@@ -237,6 +239,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                     onDateClick={onDateClick}
                                     path={nextPath}
                                     docId={currentDocId}
+                                    collection={collection}
                                     expandedPaths={expandedPaths}
                                     onToggleExpand={onToggleExpand}
                                 />
@@ -245,14 +248,14 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                     }
 
                     const { onContextMenu, markedSources } = useConnection();
-                    const isMarked = markedSources && markedSources.has(`${currentDocId}:${nextPath}`);
+                    const isMarked = markedSources && collection && markedSources.has(`${collection}:${nextPath}`);
 
                     return (
                         <div key={key} style={{ display: 'flex', gap: '6px', alignItems: 'baseline', padding: '1px 0' }}>
                             <span
                                 onContextMenu={(e) => {
                                     if (onContextMenu) {
-                                        onContextMenu(e, currentDocId, nextPath);
+                                        onContextMenu(e, currentDocId, nextPath, collection);
                                     }
                                 }}
                                 style={{
@@ -274,6 +277,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
                                 onDateClick={onDateClick}
                                 path={nextPath}
                                 docId={currentDocId}
+                                collection={collection}
                             />
                         </div>
                     );
@@ -288,6 +292,7 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, path = '',
         onDateClick={onDateClick}
         path={path}
         docId={currentDocId}
+        collection={collection}
     />;
 };
 

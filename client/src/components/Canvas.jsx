@@ -283,6 +283,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
                     onToggleExpand={onToggleExpand}
                     expandedPaths={doc.expandedPaths || []}
                     docId={doc._id}
+                    collection={doc.collection}
                 />
             </div>
         </div>
@@ -418,12 +419,12 @@ const Canvas = ({
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
 
-    // Mark as Source Logic
-    const [markedSources, setMarkedSources] = useState(new Set()); // Set<"docId:path">
-    const [contextMenu, setContextMenu] = useState(null); // { x, y, docId, path }
+    // Mark as Source Logic - keyed by collection:path so all docs from same collection share the marking
+    const [markedSources, setMarkedSources] = useState(new Set()); // Set<"collection:path">
+    const [contextMenu, setContextMenu] = useState(null); // { x, y, docId, path, collection }
 
-    const toggleMarkAsSource = useMemo(() => (docId, path) => {
-        const key = `${docId}:${path}`;
+    const toggleMarkAsSource = useMemo(() => (collection, path) => {
+        const key = `${collection}:${path}`;
         setMarkedSources(prev => {
             const next = new Set(prev);
             if (next.has(key)) {
@@ -436,14 +437,15 @@ const Canvas = ({
         setContextMenu(null);
     }, []);
 
-    const handleContextMenu = useMemo(() => (e, docId, path) => {
+    const handleContextMenu = useMemo(() => (e, docId, path, collection) => {
         e.preventDefault();
         e.stopPropagation();
         setContextMenu({
             x: e.clientX,
             y: e.clientY,
             docId,
-            path
+            path,
+            collection
         });
     }, []);
 
@@ -818,7 +820,7 @@ const Canvas = ({
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
-                            toggleMarkAsSource(contextMenu.docId, contextMenu.path);
+                            toggleMarkAsSource(contextMenu.collection, contextMenu.path);
                         }}
                         style={{
                             display: 'flex',
@@ -836,7 +838,7 @@ const Canvas = ({
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
-                        {markedSources.has(`${contextMenu.docId}:${contextMenu.path}`) ? 'Unmark as Source' : 'Mark as Source'}
+                        {markedSources.has(`${contextMenu.collection}:${contextMenu.path}`) ? 'Unmark as Source' : 'Mark as Source'}
                     </button>
                 </div>
             )}
