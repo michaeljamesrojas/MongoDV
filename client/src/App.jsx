@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 
 import { connectToMongo, listDatabases, listCollections, fetchDocuments, fetchSchema } from './api';
 import DocumentCard from './components/DocumentCard';
@@ -146,58 +146,60 @@ function App() {
     }
   };
 
-  const handleAddToCanvas = (doc) => {
-    if (!canvasDocuments.find(d => d._id === doc._id)) {
-      setCanvasDocuments(prev => [...prev, {
+  const handleAddToCanvas = useCallback((doc) => {
+    setCanvasDocuments(prev => {
+      if (prev.find(d => d._id === doc._id)) return prev;
+      return [...prev, {
         _id: doc._id || Math.random().toString(36).substr(2, 9),
         data: doc,
         collection: selectedCollection?.col || 'Unknown',
         x: 100 + (prev.length % 5) * 40,
         y: 100 + (prev.length % 5) * 40,
         expandedPaths: []
-      }]);
-    }
+      }];
+    });
     // Optional: Flash a notification or something?
-  };
+  }, [selectedCollection]);
 
-  const handleUpdateGapNodePosition = (id, x, y) => {
+  const handleUpdateGapNodePosition = useCallback((id, x, y) => {
     setGapNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
-  };
+  }, []);
 
-  const handleAddGapNode = (newNode) => {
+  const handleAddGapNode = useCallback((newNode) => {
     setGapNodes(prev => [...prev, newNode]);
-  };
+  }, []);
 
-  const handleDeleteGapNode = (id) => {
+  const handleDeleteGapNode = useCallback((id) => {
     setGapNodes(prev => prev.filter(n => n.id !== id));
-  };
+  }, []);
 
-  const handleUpdateCanvasPosition = (id, x, y) => {
+  const handleUpdateCanvasPosition = useCallback((id, x, y) => {
     setCanvasDocuments(prev => prev.map(d =>
       d._id === id ? { ...d, x, y } : d
     ));
-  };
+  }, []);
 
-  const handleCloneCanvasDocument = (id) => {
-    const docToClone = canvasDocuments.find(d => d._id === id);
-    if (!docToClone) return;
+  const handleCloneCanvasDocument = useCallback((id) => {
+    setCanvasDocuments(prev => {
+      const docToClone = prev.find(d => d._id === id);
+      if (!docToClone) return prev;
 
-    const newDoc = {
-      ...docToClone,
-      _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
-      x: docToClone.x + 20,
-      y: docToClone.y + 20,
-      expandedPaths: [...(docToClone.expandedPaths || [])]
-    };
+      const newDoc = {
+        ...docToClone,
+        _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
+        x: docToClone.x + 20,
+        y: docToClone.y + 20,
+        expandedPaths: [...(docToClone.expandedPaths || [])]
+      };
+      return [...prev, newDoc];
+    });
+  }, []);
 
-    setCanvasDocuments(prev => [...prev, newDoc]);
-  };
-
-  const handleDeleteCanvasDocument = (id) => {
+  const handleDeleteCanvasDocument = useCallback((id) => {
     setCanvasDocuments(prev => prev.filter(d => d._id !== id));
-  };
+  }, []);
 
-  const handleToggleExpand = (docId, path) => {
+  const handleToggleExpand = useCallback((docId, path) => {
     setCanvasDocuments(prev => prev.map(doc => {
       if (doc._id === docId) {
         const currentPaths = doc.expandedPaths || [];
@@ -208,11 +210,11 @@ function App() {
       }
       return doc;
     }));
-  };
+  }, []);
 
-  const handleConnectRequest = (id) => {
+  const handleConnectRequest = useCallback((id) => {
     setConnectModalState({ isOpen: true, sourceId: id });
-  };
+  }, []);
 
   const handleConnectSubmit = (newDocs, collectionName) => {
     if (!newDocs || newDocs.length === 0) return;

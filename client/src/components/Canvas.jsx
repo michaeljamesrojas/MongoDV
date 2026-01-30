@@ -1,9 +1,164 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand }) => {
+// Managed separately to avoid Canvas re-rendering on every frame
+const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef }) => {
+    const [lines, setLines] = useState([]);
+    const frameRef = useRef();
+
+    useEffect(() => {
+        const updateLines = () => {
+            // Only update if canvas is visible and we have nodes
+            if (!canvasRef.current || nodeRegistry.current.size === 0 && gapNodes.length === 0) {
+                if (lines.length > 0) setLines([]);
+                return;
+            }
+
+            const newLines = [];
+            const nodes = Array.from(nodeRegistry.current.values());
+
+            // 1. Regular Document Connections
+            const grouped = {};
+            nodes.forEach(node => {
+                // Check if element is still in DOM, clean up if not
+                if (!node.ref.isConnected) {
+                    nodeRegistry.current.delete(node.ref);
+                    return;
+                }
+
+                if (!grouped[node.value]) grouped[node.value] = { defs: [], refs: [] };
+                if (node.type === 'def') grouped[node.value].defs.push(node);
+                else grouped[node.value].refs.push(node);
+            });
+
+            if (canvasRef.current) {
+                const canvasRect = canvasRef.current.getBoundingClientRect();
+
+                // Helper to get Canvas Coords from Rect
+                const getCanvasCoords = (rect) => ({
+                    x: (rect.left - canvasRect.left + rect.width / 2),
+                    y: (rect.top - canvasRect.top + rect.height / 2)
+                });
+
+                Object.values(grouped).forEach(({ defs, refs }) => {
+                    if (defs.length === 0 || refs.length === 0) return;
+
+                    refs.forEach(refNode => {
+                        const refRect = refNode.ref.getBoundingClientRect();
+                        if (refRect.width === 0) return; // Hidden/Detached
+
+                        defs.forEach(defNode => {
+                            const defRect = defNode.ref.getBoundingClientRect();
+                            if (defRect.width === 0) return;
+
+                            const start = getCanvasCoords(refRect);
+                            const end = getCanvasCoords(defRect);
+
+                            // Determine start/end based on direction
+                            const isReverse = arrowDirection === 'reverse';
+
+                            newLines.push({
+                                id: `${nodeRegistry.current.get(refNode.ref)?.value}-${refNode.value}-${defNode.value}`, // More stable ID structure could help but index is ok for now
+                                x1: isReverse ? end.x : start.x,
+                                y1: isReverse ? end.y : start.y,
+                                x2: isReverse ? start.x : end.x,
+                                y2: isReverse ? start.y : end.y,
+                                color: '#fbbf24'
+                            });
+                        });
+                    });
+                });
+
+                // 2. Gap Node Connections
+                gapNodes.forEach(node => {
+                    // Start -> GapNode
+                    const sourceEl = document.getElementById(node.sourceId);
+
+                    if (sourceEl) {
+                        const sourceRect = sourceEl.getBoundingClientRect();
+                        if (sourceRect.width > 0) {
+                            const sourcePos = getCanvasCoords(sourceRect);
+
+                            const gapScreenX = node.x * zoom + pan.x;
+                            const gapScreenY = node.y * zoom + pan.y;
+
+                            newLines.push({
+                                id: `${node.id}-source`,
+                                x1: sourcePos.x,
+                                y1: sourcePos.y,
+                                x2: gapScreenX,
+                                y2: gapScreenY,
+                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                            });
+                        }
+                    }
+
+                    // GapNode -> Target
+                    const targetEl = document.getElementById(node.targetId);
+                    if (targetEl) {
+                        const targetRect = targetEl.getBoundingClientRect();
+                        if (targetRect.width > 0) {
+                            const targetPos = getCanvasCoords(targetRect);
+
+                            const gapScreenX = node.x * zoom + pan.x;
+                            const gapScreenY = node.y * zoom + pan.y;
+
+                            newLines.push({
+                                id: `${node.id}-target`,
+                                x1: gapScreenX,
+                                y1: gapScreenY,
+                                x2: targetPos.x,
+                                y2: targetPos.y,
+                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
+                            });
+                        }
+                    }
+                });
+            }
+
+            setLines(newLines);
+            frameRef.current = requestAnimationFrame(updateLines);
+        };
+
+        updateLines();
+        return () => cancelAnimationFrame(frameRef.current);
+    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef]);
+
+    return (
+        <svg style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+            zIndex: 5
+        }}>
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" opacity="0.5" />
+                </marker>
+            </defs>
+            {lines.map((line, i) => (
+                <line
+                    key={i}
+                    x1={line.x1}
+                    y1={line.y1}
+                    x2={line.x2}
+                    y2={line.y2}
+                    stroke={line.color || "#fbbf24"}
+                    strokeWidth="2"
+                    strokeOpacity="0.6"
+                    markerEnd="url(#arrowhead)"
+                />
+            ))}
+        </svg>
+    );
+});
+
+const DraggableCard = memo(({ doc, onUpdatePosition, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
@@ -169,9 +324,22 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDele
             </div>
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    // Custom comparison to avoid re-renders on every parent render if props haven't changed
+    // Deep comparison of doc might be expensive, so we rely on immutability of doc object or specific fields
+    return (
+        prevProps.doc === nextProps.doc &&
+        prevProps.zoom === nextProps.zoom &&
+        prevProps.onUpdatePosition === nextProps.onUpdatePosition &&
+        prevProps.onConnect === nextProps.onConnect &&
+        prevProps.onClone === nextProps.onClone &&
+        prevProps.onDelete === nextProps.onDelete &&
+        prevProps.onDateClick === nextProps.onDateClick &&
+        prevProps.onToggleExpand === nextProps.onToggleExpand
+    );
+});
 
-const DraggableGapNode = ({ node, zoom, onUpdatePosition, onDelete }) => {
+const DraggableGapNode = memo(({ node, zoom, onUpdatePosition, onDelete }) => {
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 });
     const nodeStart = useRef({ x: 0, y: 0 });
@@ -254,7 +422,7 @@ const DraggableGapNode = ({ node, zoom, onUpdatePosition, onDelete }) => {
             </button>
         </div>
     );
-};
+});
 
 const Canvas = ({
     documents,
@@ -282,8 +450,15 @@ const Canvas = ({
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
 
-    const handleDateClick = (dateValue, e, stableId) => {
+    // Use ref to access latest viewState in callbacks without triggering re-renders
+    const viewStateRef = useRef(viewState);
+    useEffect(() => {
+        viewStateRef.current = viewState;
+    }, [viewState]);
+
+    const handleDateClick = useMemo(() => (dateValue, e, stableId) => {
         const date = new Date(dateValue);
+        const { pan, zoom } = viewStateRef.current;
 
         // Ensure we have a valid stableId, fallback if missing
         if (!stableId) {
@@ -291,162 +466,53 @@ const Canvas = ({
             return;
         }
 
-        if (!dateSelection) {
-            setDateSelection({ value: date, stableId: stableId, ref: e.currentTarget });
-        } else {
-            // Check if same date selected (deselect)
-            if (dateSelection.stableId === stableId) {
-                setDateSelection(null);
-                return;
+        setDateSelection(prev => {
+            if (!prev) {
+                return { value: date, stableId: stableId, ref: e.currentTarget };
+            } else {
+                // Check if same date selected (deselect)
+                if (prev.stableId === stableId) {
+                    return null;
+                }
+
+                // Calculate difference
+                const text = calculateTimeGap(prev.value, date);
+
+                // Calculate position in Canvas Coordinates
+                // e.clientX is viewport. We need to convert to canvas coords.
+                const canvasX = (e.clientX - pan.x) / zoom;
+                const canvasY = (e.clientY - pan.y) / zoom;
+
+                const newGapNode = {
+                    id: `gap-${Date.now()}`,
+                    text,
+                    x: canvasX,
+                    y: canvasY - 50, // slightly above
+                    sourceId: prev.stableId,
+                    targetId: stableId
+                };
+
+                onAddGapNode(newGapNode);
+                return null; // Reset
             }
-
-            // Calculate difference
-            const text = calculateTimeGap(dateSelection.value, date);
-
-            // Calculate position in Canvas Coordinates
-            // e.clientX is viewport. We need to convert to canvas coords.
-            const canvasX = (e.clientX - pan.x) / zoom;
-            const canvasY = (e.clientY - pan.y) / zoom;
-
-            const newGapNode = {
-                id: `gap-${Date.now()}`,
-                text,
-                x: canvasX,
-                y: canvasY - 50, // slightly above
-                sourceId: dateSelection.stableId,
-                targetId: stableId
-            };
-
-            onAddGapNode(newGapNode);
-            setDateSelection(null); // Reset
-        }
-    };
+        });
+    }, [onAddGapNode]);
 
     // Connection Logic
     const nodeRegistry = useRef(new Map()); // Map<id, { type: 'def'|'ref', ref: HTMLElement, value: string }>
-    const [lines, setLines] = useState([]);
-    const frameRef = useRef();
 
-    // Register/Unregister nodes
-    const registerNode = (value, type, ref) => {
+    // Register/Unregister nodes - Memoized to prevent Context value updates
+    const registerNode = useMemo(() => (value, type, ref) => {
         if (!ref) return;
         nodeRegistry.current.set(ref, { value, type, ref });
-    };
+    }, []);
 
-    const unregisterNode = (ref) => {
+    const unregisterNode = useMemo(() => (ref) => {
         nodeRegistry.current.delete(ref);
-    };
+    }, []);
 
-    const contextValue = { registerNode, unregisterNode };
-
-    // Line Update Loop
-    useEffect(() => {
-        const updateLines = () => {
-            const newLines = [];
-            const nodes = Array.from(nodeRegistry.current.values());
-
-            // 1. Regular Document Connections
-            const grouped = {};
-            nodes.forEach(node => {
-                if (!grouped[node.value]) grouped[node.value] = { defs: [], refs: [] };
-                if (node.type === 'def') grouped[node.value].defs.push(node);
-                else grouped[node.value].refs.push(node);
-            });
-
-            if (canvasRef.current) {
-                const canvasRect = canvasRef.current.getBoundingClientRect();
-
-                // Helper to get Canvas Coords from Rect
-                const getCanvasCoords = (rect) => ({
-                    x: (rect.left - canvasRect.left + rect.width / 2),
-                    y: (rect.top - canvasRect.top + rect.height / 2)
-                });
-
-                Object.values(grouped).forEach(({ defs, refs }) => {
-                    if (defs.length === 0 || refs.length === 0) return;
-
-                    refs.forEach(refNode => {
-                        const refRect = refNode.ref.getBoundingClientRect();
-                        if (refRect.width === 0) return; // Hidden/Detached
-
-                        defs.forEach(defNode => {
-                            const defRect = defNode.ref.getBoundingClientRect();
-                            if (defRect.width === 0) return;
-
-                            const start = getCanvasCoords(refRect);
-                            const end = getCanvasCoords(defRect);
-
-                            // Determine start/end based on direction
-                            // Default: Reference -> Definition (start -> end)
-                            // Reverse: Definition -> Reference (end -> start)
-                            const isReverse = arrowDirection === 'reverse';
-
-                            newLines.push({
-                                id: `${nodeRegistry.current.get(refNode.ref)?.value} -${Math.random()} `,
-                                x1: isReverse ? end.x : start.x,
-                                y1: isReverse ? end.y : start.y,
-                                x2: isReverse ? start.x : end.x,
-                                y2: isReverse ? start.y : end.y,
-                                color: '#fbbf24'
-                            });
-                        });
-                    });
-                });
-
-                // 2. Gap Node Connections
-                gapNodes.forEach(node => {
-                    // Start -> GapNode
-                    const sourceEl = document.getElementById(node.sourceId);
-
-                    if (sourceEl) {
-                        const sourceRect = sourceEl.getBoundingClientRect();
-                        if (sourceRect.width > 0) {
-                            const sourcePos = getCanvasCoords(sourceRect);
-
-                            const gapScreenX = node.x * zoom + pan.x;
-                            const gapScreenY = node.y * zoom + pan.y;
-
-                            newLines.push({
-                                id: `${node.id}-source`,
-                                x1: sourcePos.x,
-                                y1: sourcePos.y,
-                                x2: gapScreenX,
-                                y2: gapScreenY,
-                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
-                            });
-                        }
-                    }
-
-                    // GapNode -> Target
-                    const targetEl = document.getElementById(node.targetId);
-                    if (targetEl) {
-                        const targetRect = targetEl.getBoundingClientRect();
-                        if (targetRect.width > 0) {
-                            const targetPos = getCanvasCoords(targetRect);
-
-                            const gapScreenX = node.x * zoom + pan.x;
-                            const gapScreenY = node.y * zoom + pan.y;
-
-                            newLines.push({
-                                id: `${node.id}-target`,
-                                x1: gapScreenX,
-                                y1: gapScreenY,
-                                x2: targetPos.x,
-                                y2: targetPos.y,
-                                color: node.text.startsWith('+') ? '#4ade80' : '#f87171'
-                            });
-                        }
-                    }
-                });
-            }
-
-            setLines(newLines);
-            frameRef.current = requestAnimationFrame(updateLines);
-        };
-
-        updateLines();
-        return () => cancelAnimationFrame(frameRef.current);
-    }, [documents, pan, zoom, gapNodes, arrowDirection]);
+    // Memoized Context Value
+    const contextValue = useMemo(() => ({ registerNode, unregisterNode }), [registerNode, unregisterNode]);
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -584,35 +650,14 @@ const Canvas = ({
             </div>
 
             {/* Connection Lines Layer */}
-            <svg style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 5
-            }}>
-                <defs>
-                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                        <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" opacity="0.5" />
-                    </marker>
-                    {/* Separate markers for gaps maybe or just use colored lines? */}
-                </defs>
-                {lines.map((line, i) => (
-                    <line
-                        key={i}
-                        x1={line.x1}
-                        y1={line.y1}
-                        x2={line.x2}
-                        y2={line.y2}
-                        stroke={line.color || "#fbbf24"}
-                        strokeWidth="2"
-                        strokeOpacity="0.6"
-                        markerEnd="url(#arrowhead)" // Reusing same arrowhead for now, might need colored ones later
-                    />
-                ))}
-            </svg>
+            <ConnectionLayer
+                gapNodes={gapNodes}
+                arrowDirection={arrowDirection}
+                nodeRegistry={nodeRegistry}
+                zoom={zoom}
+                pan={pan}
+                canvasRef={canvasRef}
+            />
 
             {/* Date Selection Indicators */}
             {dateSelection && (
