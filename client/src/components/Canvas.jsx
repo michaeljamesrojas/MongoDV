@@ -1,60 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
 import DocumentCard from './DocumentCard';
 
-const DraggableCard = ({ doc, onUpdatePosition }) => {
+const DraggableCard = ({ doc, onUpdatePosition, zoom }) => {
     const [position, setPosition] = useState({ x: doc.x, y: doc.y });
     const [isDragging, setIsDragging] = useState(false);
-    const dragOffset = useRef({ x: 0, y: 0 });
+    const dragStart = useRef({ x: 0, y: 0 }); // Mouse position at start
+    const docStart = useRef({ x: 0, y: 0 });  // Doc position at start
     const cardRef = useRef(null);
 
-    // Sync local state when prop changes (e.g. initial load or external reset)
+    // Sync local state when prop changes
     useEffect(() => {
         setPosition({ x: doc.x, y: doc.y });
     }, [doc.x, doc.y]);
 
-    const handleMouseDown = (e) => {
-        if (e.target.closest('button') || e.target.closest('.collapsible-header')) {
-            // Prevent dragging when interacting with internal elements if needed, 
-            // though DocumentCard handles its own clicks. 
-            // We'll see if this is needed. For now, let's allow dragging from anywhere 
-            // on the card unless it's a specific interactive element.
-            // Actually, better to only allow dragging from a "handle" or the border/background.
-            // Let's try general dragging first but stop propagation if needed.
+    // Set initial width
+    useEffect(() => {
+        if (cardRef.current && !cardRef.current.style.width) {
+            cardRef.current.style.width = '350px';
         }
+    }, []);
+
+    const handleMouseDown = (e) => {
+        e.stopPropagation(); // Prevent propagation to canvas pan
+        if (e.button !== 0) return; // Only left click
 
         setIsDragging(true);
-        const rect = cardRef.current.getBoundingClientRect();
-        dragOffset.current = {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        };
+        dragStart.current = { x: e.clientX, y: e.clientY };
+        docStart.current = { x: position.x, y: position.y };
 
-        // Prevent text selection while dragging
         document.body.style.userSelect = 'none';
-
-        // Add global listeners
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
     };
 
     const handleMouseMove = (e) => {
-        // Calculate new position relative to the canvas container
-        // We assume the canvas container is the offset parent or we use absolute coordinates
-        // For simplicity, let's assume the parent <Canvas> is positioned relative 
-        // and we are positioning absolute relative to it.
-        // We need to account for the canvas's own offset if we used client coordinates directly.
-        // However, since we are just updating the 'left' and 'top', 
-        // we can calculate the new 'left' = currentMouseX - startMouseX + startLeft
-        // Or simpler: newLeft = currentMouseX - parentLeft - offsetX
+        const dx = (e.clientX - dragStart.current.x) / zoom;
+        const dy = (e.clientY - dragStart.current.y) / zoom;
 
-        // Let's rely on deltas to be safe or just use the offset we calculated.
-
-        const parentRect = cardRef.current.parentElement.getBoundingClientRect();
-
-        const newX = e.clientX - parentRect.left - dragOffset.current.x;
-        const newY = e.clientY - parentRect.top - dragOffset.current.y;
-
-        setPosition({ x: newX, y: newY });
+        setPosition({
+            x: docStart.current.x + dx,
+            y: docStart.current.y + dy
+        });
     };
 
     const handleMouseUp = (e) => {
@@ -63,27 +49,12 @@ const DraggableCard = ({ doc, onUpdatePosition }) => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
 
-        // Commit the final position
-        // We need to re-calculate one last time or just use the current state
-        // But since state update is async, 'position' in this closure might be stale 
-        // if we just relied on closure capture without refs.
-        // Actually handleMouseMove updates state, so we can just read the LAST computed value.
-        // But wait, handleMouseMove doesn't return the value.
-        // Let's recalculate exactly as we did in mousemove.
+        // Calculate final position same way
+        const dx = (e.clientX - dragStart.current.x) / zoom;
+        const dy = (e.clientY - dragStart.current.y) / zoom;
 
-        const parentRect = cardRef.current.parentElement.getBoundingClientRect();
-        const newX = e.clientX - parentRect.left - dragOffset.current.x;
-        const newY = e.clientY - parentRect.top - dragOffset.current.y;
-
-        onUpdatePosition(doc._id, newX, newY);
+        onUpdatePosition(doc._id, docStart.current.x + dx, docStart.current.y + dy);
     };
-
-    // Set initial width directly on DOM to allow native resize without React interference
-    useEffect(() => {
-        if (cardRef.current && !cardRef.current.style.width) {
-            cardRef.current.style.width = '350px';
-        }
-    }, []);
 
     return (
         <div
@@ -92,7 +63,10 @@ const DraggableCard = ({ doc, onUpdatePosition }) => {
                 position: 'absolute',
                 left: position.x,
                 top: position.y,
-                // width is handled by ref/native resize
+                // Removed maxHeight to allow infinite resizing
+                // Removed overflow: auto (unless we want internal scroll) - let's keep auto if content is HUGE but box is small
+                // But for "infinitely resizable" usually means the box grows.
+                // If we want box to grow, we shouldn't set maxHeight.
                 zIndex: isDragging ? 1000 : 10,
                 boxShadow: isDragging ? '0 10px 25px rgba(0,0,0,0.5)' : '0 4px 6px rgba(0,0,0,0.1)',
                 transition: isDragging ? 'none' : 'box-shadow 0.2s',
@@ -100,14 +74,14 @@ const DraggableCard = ({ doc, onUpdatePosition }) => {
                 borderRadius: '8px',
                 border: '1px solid var(--glass-border)',
                 padding: '1rem',
-                maxHeight: '400px',
-                overflow: 'auto',
                 resize: 'both',
+                overflow: 'auto',
                 minWidth: '200px',
                 minHeight: '100px',
                 display: 'flex',
                 flexDirection: 'column'
             }}
+            onMouseDown={(e) => e.stopPropagation()} // Stop propagation for resize handle clicks etc
         >
             <div
                 onMouseDown={handleMouseDown}
@@ -119,7 +93,8 @@ const DraggableCard = ({ doc, onUpdatePosition }) => {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     cursor: isDragging ? 'grabbing' : 'grab',
-                    userSelect: 'none'
+                    userSelect: 'none',
+                    flexShrink: 0
                 }}
             >
                 <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
@@ -128,7 +103,6 @@ const DraggableCard = ({ doc, onUpdatePosition }) => {
                 <div style={{ fontSize: '1rem', opacity: 0.5 }}>⠿</div>
             </div>
 
-            {/* Content area */}
             <div style={{ flex: 1 }}>
                 <DocumentCard data={doc.data} isRoot={false} />
             </div>
@@ -137,45 +111,147 @@ const DraggableCard = ({ doc, onUpdatePosition }) => {
 };
 
 const Canvas = ({ documents, onUpdatePosition }) => {
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [zoom, setZoom] = useState(1);
+    const [isPanning, setIsPanning] = useState(false);
+
+    // For panning logic
+    const lastMousePos = useRef({ x: 0, y: 0 });
+
+    const handleWheel = (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const zoomSensitivity = 0.001;
+        const delta = -e.deltaY * zoomSensitivity;
+        const newZoom = Math.min(Math.max(zoom + delta, 0.1), 5);
+
+        const scaleFactor = newZoom / zoom;
+
+        // Calculate new pan to keep the point under mouse stationary
+        const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
+        const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
+
+        setPan({ x: newPanX, y: newPanY });
+        setZoom(newZoom);
+    };
+
+    const handleMouseDown = (e) => {
+        // Middle mouse or Left click on background
+        if (e.button === 0 || e.button === 1) {
+            setIsPanning(true);
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
+            document.body.style.cursor = 'grabbing';
+            document.addEventListener('mousemove', handlePanMove);
+            document.addEventListener('mouseup', handlePanUp);
+        }
+    };
+
+    const handlePanMove = (e) => {
+        const dx = e.clientX - lastMousePos.current.x;
+        const dy = e.clientY - lastMousePos.current.y;
+
+        setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handlePanUp = () => {
+        setIsPanning(false);
+        document.body.style.cursor = '';
+        document.removeEventListener('mousemove', handlePanMove);
+        document.removeEventListener('mouseup', handlePanUp);
+    };
+
     return (
         <div style={{
             width: '100%',
             height: '100%',
+            overflow: 'hidden',
+            backgroundColor: '#0f172a',
             position: 'relative',
-            overflow: 'auto',
-            background: 'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0)',
-            backgroundSize: '20px 20px',
-            backgroundColor: '#0f172a'
-        }}>
+            cursor: isPanning ? 'grabbing' : 'grab'
+        }}
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+        >
+            {/* Grid Pattern that moves with Pan / Scale */}
             <div style={{
-                // Infinite canvas simulation - just make it big enough for now
-                minWidth: '2000px',
-                minHeight: '2000px',
-                position: 'relative'
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0)',
+                backgroundSize: `${20 * zoom}px ${20 * zoom}px`, // Scale grid
+                backgroundPosition: `${pan.x}px ${pan.y}px`,    // Move grid
+                pointerEvents: 'none'
+            }} />
+
+            {/* Content Container */}
+            <div style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: '0 0',
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none' // Let events pass through to specific children
             }}>
-                {documents.length === 0 ? (
-                    <div style={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        textAlign: 'center',
-                        color: '#475569',
-                        pointerEvents: 'none'
-                    }}>
-                        <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>⧉</div>
-                        <h3>Canvas is empty</h3>
-                        <p style={{ fontSize: '0.9rem' }}>Send documents here from the collection view</p>
-                    </div>
-                ) : (
-                    documents.map(doc => (
+                {/* Make sure children have pointer events */}
+                <div style={{ pointerEvents: 'auto' }}>
+                    {documents.length === 0 && (
+                        <div style={{
+                            position: 'absolute',
+                            // We want this centered in the viewport, so we need to counter-act the transform
+                            // Or just put it outside the transform container. 
+                            // Putting it here means it moves with the canvas, which is consistent.
+                            left: (window.innerWidth / 2 - pan.x) / zoom, // rough centering logic
+                            top: (window.innerHeight / 2 - pan.y) / zoom,
+                            transform: 'translate(-50%, -50%)',
+                            textAlign: 'center',
+                            color: '#475569',
+                            pointerEvents: 'none'
+                        }}>
+                            <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>⧉</div>
+                            <h3>Canvas is empty</h3>
+                            <p style={{ fontSize: '0.9rem' }}>Send documents here from the collection view</p>
+                        </div>
+                    )}
+
+                    {documents.map(doc => (
                         <DraggableCard
                             key={doc._id}
                             doc={doc}
                             onUpdatePosition={onUpdatePosition}
+                            zoom={zoom}
                         />
-                    ))
-                )}
+                    ))}
+                </div>
+            </div>
+
+            {/* HUD / Controls */}
+            <div style={{
+                position: 'absolute',
+                bottom: '20px',
+                right: '20px',
+                background: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(4px)',
+                padding: '0.5rem',
+                borderRadius: '8px',
+                color: '#cbd5e1',
+                fontSize: '0.8rem',
+                display: 'flex',
+                gap: '10px',
+                alignItems: 'center',
+                border: '1px solid var(--glass-border)',
+                pointerEvents: 'auto'
+            }}
+                onMouseDown={e => e.stopPropagation()} // Prevent pan starting from HUD
+            >
+                <button onClick={() => setZoom(z => Math.max(z - 0.1, 0.1))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>-</button>
+                <span style={{ minWidth: '40px', textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(z + 0.1, 5))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>+</button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
+                <button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
             </div>
         </div>
     );
