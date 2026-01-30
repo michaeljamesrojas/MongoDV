@@ -218,6 +218,7 @@ function App() {
     setCanvasDocuments(prev => prev.filter(d => !idsSet.has(d._id)));
   };
 
+
   const handleToggleExpand = useCallback((docId, path) => {
     setCanvasDocuments(prev => prev.map(doc => {
       if (doc._id === docId) {
@@ -226,6 +227,15 @@ function App() {
           ? currentPaths.filter(p => p !== path)
           : [...currentPaths, path];
         return { ...doc, expandedPaths: newPaths };
+      }
+      return doc;
+    }));
+  }, []);
+
+  const handleToggleBackdrop = useCallback((docId) => {
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === docId) {
+        return { ...doc, dimmed: !doc.dimmed };
       }
       return doc;
     }));
@@ -654,6 +664,7 @@ function App() {
                 onLoad={handleOpenLoadModal}
                 currentSaveName={currentSaveName}
                 onToggleExpand={handleToggleExpand}
+                onToggleBackdrop={handleToggleBackdrop}
                 markedSources={markedSources}
                 onMarkedSourcesChange={setMarkedSources}
                 highlightedFields={highlightedFields}

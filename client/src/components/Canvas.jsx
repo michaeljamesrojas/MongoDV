@@ -158,7 +158,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop }) => {
     const cardRef = useRef(null);
 
     // Set initial width
@@ -185,16 +185,20 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
     const currentX = doc.x + (isSelected && dragOffset ? dragOffset.x : 0);
     const currentY = doc.y + (isSelected && dragOffset ? dragOffset.y : 0);
 
+    // Determine if this card is dimmed
+    const isDimmed = doc.dimmed === true;
+
     return (
         <div
             ref={cardRef}
+            data-draggable-card
             style={{
                 position: 'absolute',
                 left: currentX,
                 top: currentY,
                 zIndex: isSelected ? 100 : 10,
                 boxShadow: isSelected ? '0 0 0 2px var(--primary), 0 10px 25px rgba(0,0,0,0.5)' : '0 4px 6px rgba(0,0,0,0.1)',
-                transition: dragOffset ? 'none' : 'box-shadow 0.2s, top 0.1s, left 0.1s', // Smooth snap back if needed, but instant during drag
+                transition: dragOffset ? 'none' : 'box-shadow 0.2s, top 0.1s, left 0.1s, opacity 0.2s, filter 0.2s', // Smooth snap back if needed, but instant during drag
                 background: 'var(--panel-bg)',
                 borderRadius: '8px',
                 border: '1px solid var(--glass-border)',
@@ -204,13 +208,28 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
                 minWidth: '200px',
                 minHeight: '100px',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                // Dimming effect when backdrop is toggled
+                opacity: isDimmed ? 0.15 : 1,
+                filter: isDimmed ? 'blur(1px)' : 'none',
+                cursor: backdropToggleMode ? 'crosshair' : undefined
             }}
             onMouseDown={(e) => {
+                if (backdropToggleMode) {
+                    e.stopPropagation();
+                    onToggleBackdrop && onToggleBackdrop(doc._id);
+                    return;
+                }
                 e.stopPropagation();
                 // We notify parent. Parent determines if it's a drag start or just selection.
                 // But we need to pass the event so parent gets clientX/Y.
                 onMouseDown(e, doc._id);
+            }}
+            onMouseEnter={() => {
+                // If in backdrop toggle mode and mouse is pressed, toggle
+                if (backdropToggleMode && backdropMouseDown) {
+                    onToggleBackdrop && onToggleBackdrop(doc._id);
+                }
             }}
         >
             <div
@@ -413,7 +432,8 @@ const Canvas = ({
     hoistedFields = new Set(),
     onHoistedFieldsChange,
     arrowDirection = 'forward',
-    onArrowDirectionChange
+    onArrowDirectionChange,
+    onToggleBackdrop
 }) => {
     // destruct defaults if undefined to avoid crash, though App passes them
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
@@ -427,9 +447,18 @@ const Canvas = ({
     const boxSelectPreviewRef = useRef([]); // Ref to track latest preview for mouseup handler
     const cardRefs = useRef(new Map()); // Map<docId, HTMLElement>
 
+    // Backdrop toggle mode state
+    const [backdropToggleMode, setBackdropToggleMode] = useState(false);
+    const [canvasContextMenu, setCanvasContextMenu] = useState(null); // { x, y } for canvas right-click menu
+    const [backdropMouseDown, setBackdropMouseDown] = useState(false); // Track if mouse is held down in backdrop mode
+
     // Keyboard listeners
     useEffect(() => {
         const handleKeyDown = (e) => {
+            if (e.key === 'Escape' && backdropToggleMode) {
+                setBackdropToggleMode(false);
+                return;
+            }
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 if (selectedIds.length > 0) {
                     onDeleteMany && onDeleteMany(selectedIds);
@@ -439,7 +468,7 @@ const Canvas = ({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedIds, onDeleteMany]);
+    }, [selectedIds, onDeleteMany, backdropToggleMode]);
 
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
@@ -508,18 +537,21 @@ const Canvas = ({
         });
     }, []);
 
+
     // Close context menu on global click
     useEffect(() => {
-        const closeMenu = () => setContextMenu(null);
-        if (contextMenu) {
+        const closeMenu = () => {
+            setContextMenu(null);
+            setCanvasContextMenu(null);
+        };
+        if (contextMenu || canvasContextMenu) {
             window.addEventListener('click', closeMenu);
-            window.addEventListener('contextmenu', closeMenu); // Close on other right clicks too? maybe not
+            // Note: Don't listen to contextmenu here - it interferes with opening new context menus
         }
         return () => {
             window.removeEventListener('click', closeMenu);
-            window.removeEventListener('contextmenu', closeMenu);
         };
-    }, [contextMenu]);
+    }, [contextMenu, canvasContextMenu]);
 
 
     // Use ref to access latest viewState in callbacks without triggering re-renders
@@ -621,8 +653,16 @@ const Canvas = ({
     const handlePanMouseDown = (e) => {
         // Middle mouse or Left click on background (only if not handled by card)
         if (e.button === 0 || e.button === 1) {
-            if (e.shiftKey) {
-                // Shift+Drag on background = box selection
+            if (e.shiftKey || e.button === 1) {
+                // Shift+Drag or Middle mouse = pan
+                setSelectedIds([]);
+                setIsPanning(true);
+                lastMousePos.current = { x: e.clientX, y: e.clientY };
+                document.body.style.cursor = 'grabbing';
+                document.addEventListener('mousemove', handlePanMove);
+                document.addEventListener('mouseup', handlePanUp);
+            } else {
+                // Normal click on background = box selection
                 setBoxSelectState({
                     startX: e.clientX,
                     startY: e.clientY,
@@ -633,14 +673,6 @@ const Canvas = ({
                 document.body.style.userSelect = 'none';
                 document.addEventListener('mousemove', handleBoxSelectMove);
                 document.addEventListener('mouseup', handleBoxSelectUp);
-            } else {
-                // Normal click on background = clear selection and pan
-                setSelectedIds([]);
-                setIsPanning(true);
-                lastMousePos.current = { x: e.clientX, y: e.clientY };
-                document.body.style.cursor = 'grabbing';
-                document.addEventListener('mousemove', handlePanMove);
-                document.addEventListener('mouseup', handlePanUp);
             }
         }
     };
@@ -813,13 +845,42 @@ const Canvas = ({
             overflow: 'hidden',
             backgroundColor: '#0f172a',
             position: 'relative',
-            cursor: isPanning ? 'grabbing' : 'grab'
+            cursor: backdropToggleMode ? 'crosshair' : (isPanning ? 'grabbing' : 'grab')
         }}
             onWheel={handleWheel}
-            onMouseDown={handlePanMouseDown}
+            onMouseDown={(e) => {
+                if (backdropToggleMode) {
+                    setBackdropMouseDown(true);
+                    return;
+                }
+                handlePanMouseDown(e);
+            }}
+            onMouseUp={() => {
+                if (backdropToggleMode) {
+                    setBackdropMouseDown(false);
+                }
+            }}
+            onMouseLeave={() => {
+                if (backdropToggleMode) {
+                    setBackdropMouseDown(false);
+                }
+            }}
+            onContextMenu={(e) => {
+                // Only show canvas context menu if right-clicking on empty canvas (not on a document card)
+                // Check if the click is NOT on a document card by looking for data-draggable-card attribute
+                const isOnCard = e.target.closest('[data-draggable-card]');
+                if (!isOnCard) {
+                    e.preventDefault();
+                    if (backdropToggleMode) {
+                        setBackdropToggleMode(false);
+                        return;
+                    }
+                    setCanvasContextMenu({ x: e.clientX, y: e.clientY });
+                }
+            }}
         >
             {/* Grid Pattern that moves with Pan / Scale */}
-            <div style={{
+            <div data-canvas-grid style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -902,6 +963,9 @@ const Canvas = ({
                                         cardRefs.current.delete(id);
                                     }
                                 }}
+                                backdropToggleMode={backdropToggleMode}
+                                backdropMouseDown={backdropMouseDown}
+                                onToggleBackdrop={onToggleBackdrop}
                             />
                         ))}
 
@@ -1034,6 +1098,47 @@ const Canvas = ({
                 </div>
             )}
 
+            {/* Canvas Context Menu (for right-click on empty canvas) */}
+            {canvasContextMenu && (
+                <div style={{
+                    position: 'fixed',
+                    left: canvasContextMenu.x,
+                    top: canvasContextMenu.y,
+                    background: 'var(--panel-bg)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: '6px',
+                    padding: '4px',
+                    zIndex: 9999,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    minWidth: '150px'
+                }}>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setBackdropToggleMode(true);
+                            setCanvasContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        👁 Toggle Backdrop
+                    </button>
+                </div>
+            )}
 
             {/* HUD / Controls */}
             <div style={{
