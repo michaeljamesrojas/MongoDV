@@ -583,7 +583,7 @@ function App() {
             e.currentTarget.style.borderColor = 'var(--glass-border)';
           }}
         >
-          Open Canvas (Offline)
+          Open Visualizer Canvas (Offline)
         </button>
       </form>
     </div>
