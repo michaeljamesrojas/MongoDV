@@ -202,7 +202,12 @@ function App() {
   };
 
   const handleOpenSaveModal = () => {
-    setSaveLoadModalState({ isOpen: true, mode: 'save', savedList: [] });
+    const saves = getSavesFromStorage();
+    const list = Object.entries(saves).map(([name, data]) => ({
+      name,
+      timestamp: data.timestamp
+    })).sort((a, b) => b.timestamp - a.timestamp);
+    setSaveLoadModalState({ isOpen: true, mode: 'save', savedList: list });
   };
 
   const handleOpenLoadModal = () => {

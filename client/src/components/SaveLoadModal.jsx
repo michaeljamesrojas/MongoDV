@@ -66,25 +66,56 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
 
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {mode === 'save' ? (
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontSize: '0.9rem' }}>Save Name</label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                placeholder="e.g. Project Alpha"
-                                autoFocus
-                                style={{
-                                    width: '100%',
-                                    padding: '0.75rem',
-                                    borderRadius: '6px',
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    background: 'rgba(0,0,0,0.3)',
-                                    color: 'white',
-                                    fontSize: '1rem',
-                                    outline: 'none'
-                                }}
-                            />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontSize: '0.9rem' }}>Save Name</label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    placeholder="e.g. Project Alpha"
+                                    autoFocus
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.75rem',
+                                        borderRadius: '6px',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        background: 'rgba(0,0,0,0.3)',
+                                        color: 'white',
+                                        fontSize: '1rem',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
+
+                            {existingSaves.length > 0 && (
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#94a3b8', fontSize: '0.8rem' }}>Or replace existing save:</label>
+                                    <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {existingSaves.map((save) => (
+                                            <div
+                                                key={save.name}
+                                                onClick={() => setName(save.name)}
+                                                style={{
+                                                    padding: '0.5rem 0.75rem',
+                                                    borderRadius: '6px',
+                                                    background: name === save.name ? 'rgba(96, 165, 250, 0.1)' : 'rgba(255,255,255,0.03)',
+                                                    border: name === save.name ? '1px solid var(--primary)' : '1px solid transparent',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                }}
+                                            >
+                                                <span style={{ color: name === save.name ? 'white' : '#cbd5e1', fontSize: '0.9rem' }}>{save.name}</span>
+                                                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                                    {new Date(save.timestamp).toLocaleDateString()}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
