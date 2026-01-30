@@ -454,22 +454,29 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onClone, onDelete, onD
     );
 });
 
-const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete }) => {
-    const [isDragging, setIsDragging] = useState(false);
-    const dragStart = useRef({ x: 0, y: 0 });
-    const nodeStart = useRef({ x: 0, y: 0 });
+const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, isSelected, onMouseDown, registerRef, dragOffset }) => {
+    const nodeRef = useRef(null);
+
+    const currentX = node.x + (isSelected && dragOffset ? dragOffset.x : 0);
+    const currentY = node.y + (isSelected && dragOffset ? dragOffset.y : 0);
+
+    useEffect(() => {
+        if (registerRef) {
+            registerRef(node.id, nodeRef.current);
+            return () => registerRef(node.id, null);
+        }
+    }, [node.id, registerRef]);
 
     const handleMouseDown = (e) => {
+        if (onMouseDown) {
+            onMouseDown(e, node.id);
+            return;
+        }
+
+        // Fallback for standalone dragging if parent logic not provided (not expected here)
         e.stopPropagation();
         if (e.button !== 0) return;
-
-        setIsDragging(true);
-        dragStart.current = { x: e.clientX, y: e.clientY };
-        nodeStart.current = { x: node.x, y: node.y };
-
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
+        // ... (rest of old standalone drag logic - but we'll use Canvas's group drag)
     };
 
     const handleMouseMove = (e) => {
@@ -492,11 +499,12 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete })
 
     return (
         <div
+            ref={nodeRef}
             onMouseDown={handleMouseDown}
             style={{
                 position: 'absolute',
-                left: node.x,
-                top: node.y,
+                left: currentX,
+                top: currentY,
                 transform: 'translate(-50%, -50%)',
                 background: text.startsWith('After:') ? '#4ade80' : '#f87171',
                 color: '#0f172a',
@@ -504,15 +512,16 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete })
                 borderRadius: '6px',
                 fontSize: '0.9rem',
                 fontWeight: 'bold',
-                cursor: isDragging ? 'grabbing' : 'grab',
+                cursor: 'grab',
                 zIndex: 2000,
-                boxShadow: isDragging ? '0 8px 16px rgba(0,0,0,0.3)' : '0 4px 6px rgba(0,0,0,0.2)',
-                border: '1px solid rgba(255,255,255,0.2)',
+                boxShadow: isSelected ? '0 0 0 3px var(--primary), 0 8px 16px rgba(0,0,0,0.4)' : '0 4px 6px rgba(0,0,0,0.2)',
+                border: isSelected ? '1px solid white' : '1px solid rgba(255,255,255,0.2)',
                 userSelect: 'none',
                 minWidth: 'max-content',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
+                gap: '8px',
+                transition: 'box-shadow 0.2s, border 0.2s'
             }}
         >
             {text}
@@ -867,12 +876,12 @@ const Canvas = ({
             const boxBottom = Math.max(prev.startY, currentY);
 
             const previewIds = [];
-            cardRefs.current.forEach((el, docId) => {
+            cardRefs.current.forEach((el, id) => {
                 if (el) {
                     const rect = el.getBoundingClientRect();
                     if (rect.left < boxRight && rect.right > boxLeft &&
                         rect.top < boxBottom && rect.bottom > boxTop) {
-                        previewIds.push(docId);
+                        previewIds.push(id);
                     }
                 }
             });
@@ -898,20 +907,20 @@ const Canvas = ({
 
     // ----- Card Drag & Selection Logic -----
 
-    const handleCardMouseDown = (e, docId) => {
+    const handleCardMouseDown = (e, id) => {
         if (e.button !== 0) return; // Left click only
 
         let newSelection = [...selectedIds];
 
         if (e.shiftKey) {
-            if (newSelection.includes(docId)) {
-                newSelection = newSelection.filter(id => id !== docId);
+            if (newSelection.includes(id)) {
+                newSelection = newSelection.filter(sid => sid !== id);
             } else {
-                newSelection.push(docId);
+                newSelection.push(id);
             }
         } else {
-            if (!newSelection.includes(docId)) {
-                newSelection = [docId];
+            if (!newSelection.includes(id)) {
+                newSelection = [id];
             }
             // If already selected, keep selection (to allow dragging multiple)
         }
@@ -961,19 +970,35 @@ const Canvas = ({
                 // Update all selected
                 const updates = {};
                 selectedIds.forEach(id => {
+                    // Check if it's a document
                     const doc = documents.find(d => d._id === id);
                     if (doc) {
                         updates[id] = {
                             x: doc.x + dx,
                             y: doc.y + dy
                         };
+                    } else {
+                        // Check if it's a gap node
+                        const gap = gapNodes.find(n => n.id === id);
+                        if (gap) {
+                            updates[id] = {
+                                x: gap.x + dx,
+                                y: gap.y + dy
+                            };
+                        }
                     }
                 });
                 if (onUpdatePositions) {
                     onUpdatePositions(updates);
                 } else {
-                    // Fallback loop if batch not available (shouldn't happen with correct App.jsx)
-                    Object.entries(updates).forEach(([id, pos]) => onUpdatePosition(id, pos.x, pos.y));
+                    // Fallback loop
+                    Object.entries(updates).forEach(([id, pos]) => {
+                        if (id.startsWith('gap-')) {
+                            onUpdateGapNodePosition && onUpdateGapNodePosition(id, pos.x, pos.y);
+                        } else {
+                            onUpdatePosition && onUpdatePosition(id, pos.x, pos.y);
+                        }
+                    });
                 }
             }
             return null;
@@ -1134,6 +1159,16 @@ const Canvas = ({
                                     zoom={zoom}
                                     onUpdatePosition={onUpdateGapNodePosition}
                                     onDelete={onDeleteGapNode}
+                                    isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
+                                    onMouseDown={handleCardMouseDown}
+                                    dragOffset={selectedIds.includes(node.id) ? dragOffset : null}
+                                    registerRef={(id, el) => {
+                                        if (el) {
+                                            cardRefs.current.set(id, el);
+                                        } else {
+                                            cardRefs.current.delete(id);
+                                        }
+                                    }}
                                 />
                             );
                         })}
