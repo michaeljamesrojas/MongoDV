@@ -271,8 +271,10 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData }) => {
     const cardRef = useRef(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editData, setEditData] = useState('');
 
     // Set initial width
     useEffect(() => {
@@ -398,6 +400,31 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                     >
                         <span style={{ fontSize: '0.9rem' }}>👁</span>
                     </button>
+                    {doc.collection === 'Custom' && (
+                        <button
+                            title="Edit"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsEditing(true);
+                                setEditData(JSON.stringify(doc.data, null, 2));
+                            }}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                            onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                        >
+                            <span style={{ fontSize: '0.9rem' }}>📝</span>
+                        </button>
+                    )}
                     <button
                         title="Clone"
                         onClick={(e) => { e.stopPropagation(); onClone && onClone(doc._id); }}
@@ -439,18 +466,82 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                 </div>
             </div>
 
-            <div style={{ flex: 1 }}>
-                <DocumentCard
-                    data={doc.data}
-                    isRoot={true}
-                    onConnect={onConnect}
-                    onDateClick={onDateClick}
-                    onFlagClick={onFlagClick}
-                    onToggleExpand={onToggleExpand}
-                    expandedPaths={doc.expandedPaths || []}
-                    docId={doc._id}
-                    collection={doc.collection}
-                />
+            <div style={{ flex: 1 }} onMouseDown={(e) => isEditing && e.stopPropagation()}>
+                {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', height: '100%' }}>
+                        <textarea
+                            autoFocus
+                            value={editData}
+                            onChange={(e) => setEditData(e.target.value)}
+                            onKeyDown={(e) => {
+                                // Prevents panned/zoomed canvas from taking keyboard events while typing
+                                e.stopPropagation();
+                            }}
+                            style={{
+                                width: '100%',
+                                minHeight: '200px',
+                                flex: 1,
+                                background: 'rgba(0,0,0,0.2)',
+                                border: '1px solid var(--glass-border)',
+                                borderRadius: '4px',
+                                color: '#e2e8f0',
+                                fontFamily: 'monospace',
+                                fontSize: '0.85rem',
+                                padding: '8px',
+                                outline: 'none',
+                                resize: 'vertical'
+                            }}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setIsEditing(false); }}
+                                style={{
+                                    padding: '4px 8px',
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid var(--glass-border)',
+                                    borderRadius: '4px',
+                                    color: '#94a3b8',
+                                    cursor: 'pointer',
+                                    fontSize: '0.8rem'
+                                }}
+                            >Cancel</button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    try {
+                                        const parsed = JSON.parse(editData);
+                                        onUpdateData && onUpdateData(doc._id, parsed);
+                                        setIsEditing(false);
+                                    } catch (err) {
+                                        alert("Invalid JSON: " + err.message);
+                                    }
+                                }}
+                                style={{
+                                    padding: '4px 8px',
+                                    background: 'var(--primary)',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                    fontSize: '0.8rem'
+                                }}
+                            >Save</button>
+                        </div>
+                    </div>
+                ) : (
+                    <DocumentCard
+                        data={doc.data}
+                        isRoot={true}
+                        onConnect={onConnect}
+                        onDateClick={onDateClick}
+                        onFlagClick={onFlagClick}
+                        onToggleExpand={onToggleExpand}
+                        expandedPaths={doc.expandedPaths || []}
+                        docId={doc._id}
+                        collection={doc.collection}
+                    />
+                )}
             </div>
         </div>
     );
@@ -578,6 +669,7 @@ const Canvas = ({
     arrowDirection = 'forward',
     onArrowDirectionChange,
     onToggleBackdrop,
+    onUpdateData,
     onAddCustomDocument,
     idColorOverrides = {},
     onIdColorChange
@@ -1230,6 +1322,7 @@ const Canvas = ({
                                     backdropToggleMode={backdropToggleMode}
                                     backdropMouseDown={backdropMouseDown}
                                     onToggleBackdrop={onToggleBackdrop}
+                                    onUpdateData={onUpdateData}
                                 />
                             );
                         })}

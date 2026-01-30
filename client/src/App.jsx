@@ -277,6 +277,15 @@ function App() {
     }));
   }, []);
 
+  const handleUpdateCanvasDocumentData = useCallback((id, newData) => {
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === id) {
+        return { ...doc, data: newData };
+      }
+      return doc;
+    }));
+  }, []);
+
   const handleIdColorChange = useCallback((id) => {
     setIdColorOverrides(prev => ({
       ...prev,
@@ -738,6 +747,7 @@ function App() {
                 currentSaveName={currentSaveName}
                 onToggleExpand={handleToggleExpand}
                 onToggleBackdrop={handleToggleBackdrop}
+                onUpdateData={handleUpdateCanvasDocumentData}
                 onAddCustomDocument={handleAddCustomDocument}
                 markedSources={markedSources}
                 onMarkedSourcesChange={setMarkedSources}
