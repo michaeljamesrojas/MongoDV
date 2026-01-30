@@ -157,7 +157,7 @@ const DraggableCard = ({ doc, onUpdatePosition, zoom, onConnect, onClone, onDele
             </div>
 
             <div style={{ flex: 1 }}>
-                <DocumentCard data={doc.data} isRoot={false} onConnect={onConnect} onDateClick={onDateClick} />
+                <DocumentCard data={doc.data} isRoot={true} onConnect={onConnect} onDateClick={onDateClick} />
             </div>
         </div>
     );
@@ -282,7 +282,7 @@ const Canvas = ({
         }
 
         if (!dateSelection) {
-            setDateSelection({ value: date, stableId: stableId });
+            setDateSelection({ value: date, stableId: stableId, ref: e.currentTarget });
         } else {
             // Check if same date selected (deselect)
             if (dateSelection.stableId === stableId) {

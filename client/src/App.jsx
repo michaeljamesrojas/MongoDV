@@ -314,7 +314,7 @@ function App() {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <div style={{ paddingBottom: '1rem', marginBottom: '1rem', borderBottom: '1px solid var(--glass-border)' }}>
           <button
-            onClick={() => { setShowCanvas(true); setExpandedDb(null); setSelectedCollection(null); }}
+            onClick={() => setShowCanvas(!showCanvas)}
             style={{
               width: '100%',
               padding: '0.75rem',
