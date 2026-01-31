@@ -1351,7 +1351,7 @@ const Canvas = ({
             overflow: 'hidden',
             backgroundColor: '#0f172a',
             position: 'relative',
-            cursor: backdropToggleMode ? 'crosshair' : (isPanning ? 'grabbing' : 'grab')
+            cursor: backdropToggleMode ? 'crosshair' : (isPanning ? 'grabbing' : 'default')
         }}
             onWheel={handleWheel}
             onMouseDown={(e) => {
