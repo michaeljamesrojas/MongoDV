@@ -401,20 +401,34 @@ function App() {
 
   const handleCloneCanvasDocument = (id) => {
     saveHistoryPoint();
+    // 1. Try Document
     const docToClone = canvasDocuments.find(d => d._id === id);
-    if (!docToClone) return;
+    if (docToClone) {
+      const newDoc = {
+        ...docToClone,
+        _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
+        x: docToClone.x + 20,
+        y: docToClone.y + 20,
+        width: docToClone.width || 350,
+        height: docToClone.height || null,
+        expandedPaths: [...(docToClone.expandedPaths || [])]
+      };
+      setCanvasDocuments(prev => [...prev, newDoc]);
+      return;
+    }
 
-    const newDoc = {
-      ...docToClone,
-      _id: `${docToClone.data._id || 'doc'}-${Math.random().toString(36).substr(2, 9)}`,
-      x: docToClone.x + 20,
-      y: docToClone.y + 20,
-      width: docToClone.width || 350,
-      height: docToClone.height || null,
-      expandedPaths: [...(docToClone.expandedPaths || [])]
-    };
-
-    setCanvasDocuments(prev => [...prev, newDoc]);
+    // 2. Try Gap Node
+    const gapToClone = gapNodes.find(n => n.id === id);
+    if (gapToClone) {
+      const newGap = {
+        ...gapToClone,
+        id: `gap-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        x: gapToClone.x + 20,
+        y: gapToClone.y + 20,
+        // dimmed: false // Reset dimmed state on clone if persisted
+      };
+      setGapNodes(prev => [...prev, newGap]);
+    }
   };
 
   const handleDeleteCanvasDocument = (id) => {
@@ -446,12 +460,31 @@ function App() {
 
   const handleToggleBackdrop = useCallback((docId) => {
     saveHistoryPoint();
-    setCanvasDocuments(prev => prev.map(doc => {
-      if (doc._id === docId) {
-        return { ...doc, dimmed: !doc.dimmed };
+    // 1. Try Document
+    let found = false;
+    setCanvasDocuments(prev => {
+      const idx = prev.findIndex(d => d._id === docId);
+      if (idx !== -1) {
+        found = true;
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
       }
-      return doc;
-    }));
+      return prev;
+    });
+
+    if (found) return;
+
+    // 2. Try Gap Node
+    setGapNodes(prev => {
+      const idx = prev.findIndex(n => n.id === docId);
+      if (idx !== -1) {
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
+      }
+      return prev;
+    });
   }, [saveHistoryPoint]);
 
   const handleUpdateCanvasDocumentData = useCallback((id, newData) => {

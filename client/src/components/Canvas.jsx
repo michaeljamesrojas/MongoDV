@@ -662,7 +662,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
     );
 });
 
-const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, isSelected, onMouseDown, registerRef }) => {
+const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, isSelected, onMouseDown, registerRef, onContextMenu }) => {
     const nodeRef = useRef(null);
 
     const currentX = node.x;
@@ -678,6 +678,7 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
     return (
         <div
             ref={nodeRef}
+            onContextMenu={(e) => onContextMenu && onContextMenu(e, node.id)}
             onMouseDown={(e) => {
                 e.stopPropagation();
                 onMouseDown(e, node.id);
@@ -702,7 +703,9 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                transition: 'box-shadow 0.2s, border 0.2s'
+                transition: 'box-shadow 0.2s, border 0.2s, opacity 0.2s, filter 0.2s',
+                opacity: node.dimmed ? 0.3 : 1,
+                filter: node.dimmed ? 'blur(1px) grayscale(50%)' : 'none'
             }}
         >
             {text}
@@ -1154,6 +1157,27 @@ const Canvas = ({
         return [];
     };
 
+    const handleNodeContextMenu = useCallback((e, nodeId) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const currentSelected = selectedIdsRef.current;
+        let newSelected = currentSelected;
+
+        if (!currentSelected.includes(nodeId)) {
+            // Right-clicked on unselected item -> Select ONLY this item
+            newSelected = [nodeId];
+            setSelectedIds([nodeId]);
+        }
+        // If right-clicked on already selected item, keep selection (to allow bulk action)
+
+        setCardContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            docId: nodeId
+        });
+    }, []);
+
     // ----- Box Selection Logic -----
     const handleBoxSelectMove = (e) => {
         const currentX = e.clientX;
@@ -1482,25 +1506,7 @@ const Canvas = ({
                                     onToggleBackdrop={onToggleBackdrop}
                                     onUpdateData={onUpdateData}
                                     onUpdateDimensions={onUpdateDimensions}
-                                    onContextMenu={(e, docId) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-
-                                        // Handle selection logic for right-click
-                                        let newSelected = selectedIds;
-                                        if (!selectedIds.includes(docId)) {
-                                            // Right-clicked on unselected item -> Select ONLY this item
-                                            newSelected = [docId];
-                                            setSelectedIds([docId]);
-                                        }
-                                        // If right-clicked on already selected item, keep selection (to allow bulk action)
-
-                                        setCardContextMenu({
-                                            x: e.clientX,
-                                            y: e.clientY,
-                                            docId: docId
-                                        });
-                                    }}
+                                    onContextMenu={handleNodeContextMenu}
                                 />
                             );
                         })}
@@ -1525,6 +1531,7 @@ const Canvas = ({
                                     onDelete={onDeleteGapNode}
                                     isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
                                     onMouseDown={handleCardMouseDown}
+                                    onContextMenu={handleNodeContextMenu}
                                     registerRef={(id, el) => {
                                         if (el) {
                                             cardRefs.current.set(id, el);
