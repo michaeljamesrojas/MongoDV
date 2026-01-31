@@ -276,7 +276,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions, onContextMenu }) => {
     const cardRef = useRef(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState('');
@@ -419,6 +419,9 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                 if (backdropToggleMode && backdropMouseDown) {
                     onToggleBackdrop && onToggleBackdrop(doc._id);
                 }
+            }}
+            onContextMenu={(e) => {
+                onContextMenu && onContextMenu(e, doc._id);
             }}
         >
             <div
@@ -768,6 +771,7 @@ const Canvas = ({
     // Backdrop toggle mode state
     const [backdropToggleMode, setBackdropToggleMode] = useState(false);
     const [canvasContextMenu, setCanvasContextMenu] = useState(null); // { x, y } for canvas right-click menu
+    const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, docId } for document right-click menu
     const [backdropMouseDown, setBackdropMouseDown] = useState(false); // Track if mouse is held down in backdrop mode
 
     // Custom document creation state
@@ -955,15 +959,16 @@ const Canvas = ({
         const closeMenu = () => {
             setContextMenu(null);
             setCanvasContextMenu(null);
+            setCardContextMenu(null);
         };
-        if (contextMenu || canvasContextMenu) {
+        if (contextMenu || canvasContextMenu || cardContextMenu) {
             window.addEventListener('click', closeMenu);
             // Note: Don't listen to contextmenu here - it interferes with opening new context menus
         }
         return () => {
             window.removeEventListener('click', closeMenu);
         };
-    }, [contextMenu, canvasContextMenu]);
+    }, [contextMenu, canvasContextMenu, cardContextMenu]);
 
 
     // Use ref to access latest viewState in callbacks without triggering re-renders
@@ -1402,6 +1407,25 @@ const Canvas = ({
                                     onToggleBackdrop={onToggleBackdrop}
                                     onUpdateData={onUpdateData}
                                     onUpdateDimensions={onUpdateDimensions}
+                                    onContextMenu={(e, docId) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+
+                                        // Handle selection logic for right-click
+                                        let newSelected = selectedIds;
+                                        if (!selectedIds.includes(docId)) {
+                                            // Right-clicked on unselected item -> Select ONLY this item
+                                            newSelected = [docId];
+                                            setSelectedIds([docId]);
+                                        }
+                                        // If right-clicked on already selected item, keep selection (to allow bulk action)
+
+                                        setCardContextMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            docId: docId
+                                        });
+                                    }}
                                 />
                             );
                         })}
@@ -1550,6 +1574,105 @@ const Canvas = ({
                     boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                 }}>
                     Start Date
+                </div>
+            )}
+
+            {/* Document Context Menu */}
+            {cardContextMenu && (
+                <div style={{
+                    position: 'fixed',
+                    left: cardContextMenu.x,
+                    top: cardContextMenu.y,
+                    background: 'var(--panel-bg)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: '6px',
+                    padding: '4px',
+                    zIndex: 9999,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    minWidth: '150px'
+                }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const idsToProcess = selectedIds.length > 0 ? selectedIds : [cardContextMenu.docId];
+                            idsToProcess.forEach(id => onToggleBackdrop && onToggleBackdrop(id));
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <span style={{ marginRight: '8px' }}>👁</span>
+                        Toggle Backdrop {selectedIds.length > 1 ? `(${selectedIds.length})` : ''}
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const idsToProcess = selectedIds.length > 0 ? selectedIds : [cardContextMenu.docId];
+                            idsToProcess.forEach(id => onClone && onClone(id));
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <span style={{ marginRight: '8px' }}>⎘</span>
+                        Clone {selectedIds.length > 1 ? `(${selectedIds.length})` : ''}
+                    </button>
+                    <div style={{ height: '1px', background: 'var(--glass-border)', margin: '4px 0' }} />
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const idsToProcess = selectedIds.length > 0 ? selectedIds : [cardContextMenu.docId];
+                            onDeleteMany && onDeleteMany(idsToProcess);
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        title="Delete"
+                    >
+                        <span style={{ marginRight: '8px' }}>✕</span>
+                        Delete {selectedIds.length > 1 ? `(${selectedIds.length})` : ''}
+                    </button>
                 </div>
             )}
 
