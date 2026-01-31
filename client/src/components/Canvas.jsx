@@ -38,7 +38,7 @@ const getDocIdFromStableId = (stableId) => {
 };
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
+const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRegistry, zoom, pan, isPanning = false, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
     // Track dimmed document IDs for line dimming
     const dimmedDocIds = useMemo(() => {
         const set = new Set();
@@ -49,9 +49,25 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
     }, [documents]);
     const [lines, setLines] = useState([]);
     const frameRef = useRef();
+    const lastUpdateTimeRef = useRef(0);
+    const THROTTLE_MS = 32; // ~30fps when idle
 
     useEffect(() => {
         const updateLines = () => {
+            // Skip expensive updates during active panning for smooth performance
+            if (isPanning) {
+                frameRef.current = requestAnimationFrame(updateLines);
+                return;
+            }
+
+            // Throttle updates to reduce CPU usage
+            const now = performance.now();
+            if (now - lastUpdateTimeRef.current < THROTTLE_MS) {
+                frameRef.current = requestAnimationFrame(updateLines);
+                return;
+            }
+            lastUpdateTimeRef.current = now;
+
             // Only update if canvas is visible and we have nodes
             if (!canvasRef.current || nodeRegistry.current.size === 0 && gapNodes.length === 0) {
                 if (lines.length > 0) setLines([]);
@@ -1050,13 +1066,13 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
                                 padding: '4px 6px',
                                 borderRadius: '4px',
                                 background: diff.type === 'added' ? 'rgba(74, 222, 128, 0.1)' :
-                                           diff.type === 'removed' ? 'rgba(248, 113, 113, 0.1)' :
-                                           'rgba(148, 163, 184, 0.1)'
+                                    diff.type === 'removed' ? 'rgba(248, 113, 113, 0.1)' :
+                                        'rgba(148, 163, 184, 0.1)'
                             }}>
                                 <span style={{
                                     color: diff.type === 'added' ? '#4ade80' :
-                                           diff.type === 'removed' ? '#f87171' :
-                                           '#94a3b8',
+                                        diff.type === 'removed' ? '#f87171' :
+                                            '#94a3b8',
                                     fontWeight: 500,
                                     minWidth: '30%',
                                     wordBreak: 'break-word'
@@ -2509,6 +2525,7 @@ const Canvas = ({
                 nodeRegistry={nodeRegistry}
                 zoom={zoom}
                 pan={pan}
+                isPanning={isPanning}
                 canvasRef={canvasRef}
                 documents={documents}
                 idColorOverrides={idColorOverrides}
