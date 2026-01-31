@@ -38,7 +38,7 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
     const connectHandlers = useDragAwareClick((e) => {
         if (onConnect) {
             e.stopPropagation();
-            onConnect(value);
+            onConnect(value, path);
         }
     });
     const flagHandlers = useDragAwareClick((e) => { e.stopPropagation(); onFlagClick && onFlagClick(value); });

@@ -621,8 +621,8 @@ function App() {
     setShowAllArrows(updater);
   }, [saveHistoryPoint]);
 
-  const handleConnectRequest = useCallback((id) => {
-    setConnectModalState({ isOpen: true, sourceId: id });
+  const handleConnectRequest = useCallback((id, fieldPath) => {
+    setConnectModalState({ isOpen: true, sourceId: id, fieldPath: fieldPath });
   }, []);
 
   const handleConnectSubmit = (newDocs, collectionName) => {
@@ -1344,6 +1344,7 @@ function App() {
         isOpen={connectModalState.isOpen}
         onClose={() => setConnectModalState({ ...connectModalState, isOpen: false })}
         sourceId={connectModalState.sourceId}
+        fieldPath={connectModalState.fieldPath}
         initialUri={uri}
         onConnect={handleConnectSubmit}
       />
