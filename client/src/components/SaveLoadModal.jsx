@@ -15,7 +15,7 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (mode === 'save' && name.trim()) {
+        if ((mode === 'save' || mode === 'export') && name.trim()) {
             onConfirm(name.trim());
         } else if (mode === 'load' && selectedSave) {
             onConfirm(selectedSave);
@@ -54,7 +54,7 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
             >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#f8fafc' }}>
-                        {mode === 'save' ? 'Save Canvas' : 'Load Canvas'}
+                        {mode === 'save' ? 'Save Canvas' : mode === 'export' ? 'Export Canvas' : 'Load Canvas'}
                     </h2>
                     <button
                         onClick={onClose}
@@ -65,15 +65,15 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
                 </div>
 
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {mode === 'save' ? (
+                    {mode === 'save' || mode === 'export' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontSize: '0.9rem' }}>Save Name</label>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontSize: '0.9rem' }}>{mode === 'export' ? 'Export Filename' : 'Save Name'}</label>
                                 <input
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    placeholder="e.g. Project Alpha"
+                                    placeholder={mode === 'export' ? "mongoDV-export" : "e.g. Project Alpha"}
                                     autoFocus
                                     style={{
                                         width: '100%',
@@ -194,19 +194,19 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
                         </button>
                         <button
                             type="submit"
-                            disabled={mode === 'save' ? !name.trim() : !selectedSave}
+                            disabled={(mode === 'save' || mode === 'export') ? !name.trim() : !selectedSave}
                             style={{
                                 padding: '0.5rem 1rem',
                                 borderRadius: '6px',
                                 border: 'none',
                                 background: 'var(--primary)',
                                 color: 'white',
-                                cursor: (mode === 'save' ? !name.trim() : !selectedSave) ? 'not-allowed' : 'pointer',
-                                opacity: (mode === 'save' ? !name.trim() : !selectedSave) ? 0.5 : 1,
+                                cursor: ((mode === 'save' || mode === 'export') ? !name.trim() : !selectedSave) ? 'not-allowed' : 'pointer',
+                                opacity: ((mode === 'save' || mode === 'export') ? !name.trim() : !selectedSave) ? 0.5 : 1,
                                 fontWeight: 600
                             }}
                         >
-                            {mode === 'save' ? 'Save' : 'Load'}
+                            {mode === 'save' || mode === 'export' ? 'Save/Export' : 'Load'}
                         </button>
                     </div>
                 </form>

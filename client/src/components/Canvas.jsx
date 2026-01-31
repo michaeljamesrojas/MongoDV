@@ -744,6 +744,8 @@ const Canvas = ({
     onSave,
     onSaveAs,
     onLoad,
+    onExport,
+    onImport,
     currentSaveName,
     gapNodes = [],
     onUpdateGapNodePosition,
@@ -2273,9 +2275,42 @@ const Canvas = ({
                         📁 {currentSaveName}
                     </span>
                 )}
-                <button onClick={onSave} title={currentSaveName ? `Save to "${currentSaveName}"` : "Save Canvas State"} style={{ background: 'transparent', border: 'none', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}>Save</button>
-                <button onClick={onSaveAs} title="Save As New..." style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer', fontWeight: 600 }}>Save As</button>
-                <button onClick={onLoad} title="Load Canvas State" style={{ background: 'transparent', border: 'none', color: '#4ade80', cursor: 'pointer', fontWeight: 600 }}>Load</button>
+                <button
+                    onClick={onSave}
+                    title={currentSaveName ? `Save to "${currentSaveName}"` : "Save Canvas State"}
+                    style={{ background: 'transparent', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                    💾
+                </button>
+                <button
+                    onClick={onSaveAs}
+                    title="Save As New..."
+                    style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                    ➕
+                </button>
+                <button
+                    onClick={onLoad}
+                    title="Load Canvas State"
+                    style={{ background: 'transparent', border: 'none', color: '#4ade80', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                    📂
+                </button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
+                <button
+                    onClick={onExport}
+                    title="Export to JSON"
+                    style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                    📤
+                </button>
+                <button
+                    onClick={onImport}
+                    title="Import from JSON"
+                    style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                    📥
+                </button>
             </div>
         </div >
     );

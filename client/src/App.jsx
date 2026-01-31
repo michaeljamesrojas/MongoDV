@@ -648,6 +648,104 @@ function App() {
     setSaveLoadModalState(prev => ({ ...prev, savedList: list }));
   };
 
+  const getExportData = () => {
+    const snapshot = getCanvasSnapshot(true); // Include view state
+    // Convert Sets to Arrays for JSON serialization
+    return {
+      ...snapshot,
+      markedSources: Array.from(snapshot.markedSources),
+      highlightedFields: Array.from(snapshot.highlightedFields),
+      hoistedFields: Array.from(snapshot.hoistedFields)
+    };
+  };
+
+  const handleExport = async () => {
+    // Feature Check: File System Access API (Browser Native Save Dialog)
+    if ('showSaveFilePicker' in window) {
+      try {
+        const exportData = getExportData();
+        const data = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+
+        const handle = await window.showSaveFilePicker({
+          suggestedName: `mongoDV-export-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`,
+          types: [{
+            description: 'JSON Files',
+            accept: { 'application/json': ['.json'] },
+          }],
+        });
+
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+
+        showToast('Exported successfully', 'success', 2000);
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error("Export failed:", err);
+          showToast('Export failed', 'error');
+        }
+        // User cancelled is fine, do nothing
+      }
+    } else {
+      // Fallback: Open modal to ask for filename (Method 2)
+      setSaveLoadModalState({ isOpen: true, mode: 'export', savedList: [] });
+    }
+  };
+
+  const handleConfirmExport = (name) => {
+    try {
+      const exportData = getExportData();
+      const data = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // Ensure .json extension
+      const fileName = name.endsWith('.json') ? name : `${name}.json`;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
+      showToast('Exported successfully', 'success', 2000);
+    } catch (err) {
+      console.error("Export failed:", err);
+      showToast('Export failed', 'error');
+    }
+  };
+
+  const fileInputRef = React.useRef(null);
+
+  const handleImportClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''; // Reset to allow selecting same file again
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target.result);
+        restoreCanvasSnapshot(json, true);
+        history.clear(); // Clear history as this is a fresh state load
+        setCurrentSaveName(null); // Clear current save name as it's an imported file
+        showToast('Imported successfully', 'success', 2000);
+      } catch (err) {
+        console.error("Import failed:", err);
+        showToast('Invalid export file', 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+
 
   const Sidebar = () => (
     <div style={{
@@ -982,6 +1080,8 @@ function App() {
                 onRedo={handleRedo}
                 canUndo={history.canUndo}
                 canRedo={history.canRedo}
+                onExport={handleExport}
+                onImport={handleImportClick}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1129,11 +1229,22 @@ function App() {
         onClose={() => setSaveLoadModalState(prev => ({ ...prev, isOpen: false }))}
         mode={saveLoadModalState.mode}
         existingSaves={saveLoadModalState.savedList}
-        onConfirm={saveLoadModalState.mode === 'save' ? handleConfirmSave : handleConfirmLoad}
+        onConfirm={
+          saveLoadModalState.mode === 'save' ? handleConfirmSave :
+            saveLoadModalState.mode === 'export' ? handleConfirmExport :
+              handleConfirmLoad
+        }
         onDelete={handleDeleteSave}
       />
 
       <Toaster />
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".json"
+        style={{ display: 'none' }}
+      />
     </div>
   );
 }
