@@ -1241,6 +1241,9 @@ const Canvas = ({
 
     // For panning logic
     const lastMousePos = useRef({ x: 0, y: 0 });
+    const contentContainerRef = useRef(null);
+    const gridRef = useRef(null);
+    const panStartRef = useRef(null);
 
     const handleWheel = (e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -1271,6 +1274,13 @@ const Canvas = ({
                 setSelectedIds([]);
                 setIsPanning(true);
                 lastMousePos.current = { x: e.clientX, y: e.clientY };
+                // Store starting state for direct DOM manipulation
+                panStartRef.current = {
+                    startMouseX: e.clientX,
+                    startMouseY: e.clientY,
+                    startPanX: viewStateRef.current.pan.x,
+                    startPanY: viewStateRef.current.pan.y
+                };
                 document.body.style.cursor = 'grabbing';
                 document.addEventListener('mousemove', handlePanMove);
                 document.addEventListener('mouseup', handlePanUp);
@@ -1291,20 +1301,37 @@ const Canvas = ({
     };
 
     const handlePanMove = (e) => {
-        const dx = e.clientX - lastMousePos.current.x;
-        const dy = e.clientY - lastMousePos.current.y;
+        if (!panStartRef.current) return;
 
-        onViewStateChange(prev => ({
-            ...prev,
-            pan: {
-                x: prev.pan.x + dx,
-                y: prev.pan.y + dy
-            }
-        }));
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
+        const { startMouseX, startMouseY, startPanX, startPanY } = panStartRef.current;
+        const zoom = viewStateRef.current.zoom;
+
+        const newPanX = startPanX + (e.clientX - startMouseX);
+        const newPanY = startPanY + (e.clientY - startMouseY);
+
+        // Direct DOM manipulation - no React re-render
+        if (contentContainerRef.current) {
+            contentContainerRef.current.style.transform = `translate(${newPanX}px, ${newPanY}px) scale(${zoom})`;
+        }
+        if (gridRef.current) {
+            gridRef.current.style.backgroundPosition = `${newPanX}px ${newPanY}px`;
+        }
     };
 
-    const handlePanUp = () => {
+    const handlePanUp = (e) => {
+        if (panStartRef.current) {
+            const { startMouseX, startMouseY, startPanX, startPanY } = panStartRef.current;
+            const newPanX = startPanX + (e.clientX - startMouseX);
+            const newPanY = startPanY + (e.clientY - startMouseY);
+
+            // Commit to React state
+            onViewStateChange(prev => ({
+                ...prev,
+                pan: { x: newPanX, y: newPanY }
+            }));
+            panStartRef.current = null;
+        }
+
         setIsPanning(false);
         document.body.style.cursor = '';
         document.removeEventListener('mousemove', handlePanMove);
@@ -1586,7 +1613,7 @@ const Canvas = ({
             }}
         >
             {/* Grid Pattern that moves with Pan / Scale */}
-            <div data-canvas-grid style={{
+            <div ref={gridRef} data-canvas-grid style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -1614,7 +1641,7 @@ const Canvas = ({
             )}
 
             {/* Content Container */}
-            <div style={{
+            <div ref={contentContainerRef} style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: '0 0',
                 width: '100%',
