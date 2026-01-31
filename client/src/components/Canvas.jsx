@@ -1664,6 +1664,86 @@ const Canvas = ({
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     <button
+                        disabled={selectedIds.length < 2}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (selectedIds.length < 2) return;
+
+                            // 1. Collect all items (Documents + GapNodes)
+                            const selectedDocs = documents.filter(d => selectedIds.includes(d._id));
+                            const selectedGapNodes = gapNodes.filter(n => selectedIds.includes(n.id));
+
+                            const allItems = [
+                                ...selectedDocs.map(d => ({
+                                    id: d._id,
+                                    x: d.x,
+                                    y: d.y,
+                                    width: d.width || 350,
+                                    type: 'doc'
+                                })),
+                                ...selectedGapNodes.map(n => {
+                                    // GapNodes don't have explicit width in data, we estimate or measure
+                                    // Using a fixed estimate for now as refs might be tricky to access synchronously here without a map
+                                    // or we could look up in cardRefs if we want perfection.
+                                    let width = 150;
+                                    const el = cardRefs.current.get(n.id);
+                                    if (el) width = el.offsetWidth;
+
+                                    return {
+                                        id: n.id,
+                                        x: n.x,
+                                        y: n.y,
+                                        width,
+                                        type: 'gap'
+                                    };
+                                })
+                            ];
+
+                            if (allItems.length < 2) return;
+
+                            // 2. Sort by X position
+                            allItems.sort((a, b) => a.x - b.x);
+
+                            // 3. Calculate new positions
+                            const startY = allItems[0].y;
+                            let currentX = allItems[0].x;
+                            const updates = {};
+
+                            allItems.forEach((item) => {
+                                updates[item.id] = {
+                                    x: currentX,
+                                    y: startY
+                                };
+
+                                // Prepare X for next item
+                                currentX += item.width + 50;
+                            });
+
+                            onUpdatePositions && onUpdatePositions(updates);
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: selectedIds.length < 2 ? '#64748b' : '#e2e8f0',
+                            cursor: selectedIds.length < 2 ? 'not-allowed' : 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => {
+                            if (selectedIds.length >= 2) e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                        }}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <span style={{ marginRight: '8px' }}>↔</span>
+                        Rearrange Horizontally
+                    </button>
+                    <button
                         onClick={(e) => {
                             e.stopPropagation();
                             const idsToProcess = selectedIds.length > 0 ? selectedIds : [cardContextMenu.docId];
