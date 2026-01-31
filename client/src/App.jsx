@@ -8,6 +8,7 @@ import ConnectModal from './components/ConnectModal';
 import SaveLoadModal from './components/SaveLoadModal';
 import Toaster from './components/Toaster';
 import { useToast } from './contexts/ToastContext';
+import useHistory from './hooks/useHistory';
 import './index.css';
 
 function App() {
@@ -43,6 +44,104 @@ function App() {
   const [idColorOverrides, setIdColorOverrides] = useState({}); // { [id]: variationIndex }
 
   const { showToast } = useToast();
+  // History Logic
+  const history = useHistory.default ? useHistory.default() : useHistory(); // Handle potential default import issues if any
+
+  // Helper: Create a snapshot of the current canvas state
+  const getCanvasSnapshot = useCallback((includeView = false) => {
+    return {
+      documents: canvasDocuments,
+      gapNodes: gapNodes,
+      markedSources: new Set(markedSources), // Copy Set
+      highlightedFields: new Set(highlightedFields), // Copy Set
+      hoistedFields: new Set(hoistedFields), // Copy Set
+      arrowDirection: arrowDirection,
+      showBackdroppedArrows: showBackdroppedArrows,
+      showAllArrows: showAllArrows,
+      idColorOverrides: { ...idColorOverrides },
+      // Optional view state (included for File Saves, excluded for Undo/Redo)
+      view: includeView ? canvasView : undefined
+    };
+  }, [canvasDocuments, gapNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
+
+  // Helper: Restore state from a snapshot
+  const restoreCanvasSnapshot = useCallback((snapshot, includeView = false) => {
+    if (!snapshot) return;
+
+    // Batch updates where possible (React 18 does this auto, but good to be explicit/ordered)
+    if (snapshot.documents) setCanvasDocuments(snapshot.documents);
+    if (snapshot.gapNodes) setGapNodes(snapshot.gapNodes);
+
+    // Sets need to be restored as Sets
+    if (snapshot.markedSources) setMarkedSources(snapshot.markedSources instanceof Set ? snapshot.markedSources : new Set(snapshot.markedSources));
+    if (snapshot.highlightedFields) setHighlightedFields(snapshot.highlightedFields instanceof Set ? snapshot.highlightedFields : new Set(snapshot.highlightedFields));
+    if (snapshot.hoistedFields) setHoistedFields(snapshot.hoistedFields instanceof Set ? snapshot.hoistedFields : new Set(snapshot.hoistedFields));
+
+    if (snapshot.arrowDirection) setArrowDirection(snapshot.arrowDirection);
+    if (snapshot.showBackdroppedArrows !== undefined) setShowBackdroppedArrows(snapshot.showBackdroppedArrows);
+    if (snapshot.showAllArrows !== undefined) setShowAllArrows(snapshot.showAllArrows);
+    if (snapshot.idColorOverrides) setIdColorOverrides(snapshot.idColorOverrides);
+    else setIdColorOverrides({});
+
+    if (includeView && snapshot.view) {
+      setCanvasView(snapshot.view);
+    }
+  }, []);
+
+  // Record history point
+  const saveHistoryPoint = useCallback(() => {
+    // We snapshot immediately BEFORE the change. 
+    // Wait, the standard "undo" pattern is: 
+    // Stack contains [State A, State B]. Current is State C.
+    // Undo -> restore State B. Stack [State A]. Future [State C].
+    // So we record the *current* state before mutating it.
+    history.record(getCanvasSnapshot(false));
+  }, [history, getCanvasSnapshot]);
+
+  const handleUndo = useCallback(() => {
+    if (!history.canUndo) return;
+    const previousState = history.undo(getCanvasSnapshot(false));
+    if (previousState) {
+      restoreCanvasSnapshot(previousState, false);
+      showToast('Undo', 'info', 1000);
+    }
+  }, [history, getCanvasSnapshot, restoreCanvasSnapshot, showToast]);
+
+  const handleRedo = useCallback(() => {
+    if (!history.canRedo) return;
+    const nextState = history.redo(getCanvasSnapshot(false));
+    if (nextState) {
+      restoreCanvasSnapshot(nextState, false);
+      showToast('Redo', 'info', 1000);
+    }
+  }, [history, getCanvasSnapshot, restoreCanvasSnapshot, showToast]);
+
+  // Keyboard Shortcuts for Undo/Redo
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Check for Ctrl+Z or Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          // Redo: Ctrl+Shift+Z
+          e.preventDefault();
+          handleRedo();
+        } else {
+          // Undo: Ctrl+Z
+          e.preventDefault();
+          handleUndo();
+        }
+      }
+      // Redo: Ctrl+Y
+      else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
 
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -161,6 +260,7 @@ function App() {
   };
 
   const handleAddToCanvas = useCallback((doc) => {
+    saveHistoryPoint();
     setCanvasDocuments(prev => {
       if (prev.find(d => d._id === doc._id)) return prev;
 
@@ -182,9 +282,10 @@ function App() {
         expandedPaths: []
       }];
     });
-  }, [selectedCollection, canvasView, showToast]);
+  }, [selectedCollection, canvasView, showToast, saveHistoryPoint]);
 
   const handleAddCustomDocument = useCallback((data, x, y) => {
+    saveHistoryPoint();
     const newId = data._id || `custom-${Math.random().toString(36).substr(2, 9)}`;
     setCanvasDocuments(prev => {
       if (prev.find(d => d._id === newId)) return prev;
@@ -199,34 +300,91 @@ function App() {
         expandedPaths: []
       }];
     });
-  }, []);
+  }, [saveHistoryPoint]);
 
   const handleUpdateGapNodePosition = useCallback((id, x, y) => {
+    // Check for change
+    const node = gapNodes.find(n => n.id === id);
+    if (node && Math.abs(node.x - x) < 1 && Math.abs(node.y - y) < 1) return;
+
+    saveHistoryPoint();
     setGapNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
-  }, []);
+  }, [gapNodes, saveHistoryPoint]);
 
   const handleAddGapNode = useCallback((newNode) => {
+    saveHistoryPoint();
     setGapNodes(prev => [...prev, newNode]);
-  }, []);
+  }, [saveHistoryPoint]);
 
   const handleDeleteGapNode = useCallback((id) => {
+    saveHistoryPoint();
     setGapNodes(prev => prev.filter(n => n.id !== id));
-  }, []);
+  }, [saveHistoryPoint]);
 
-  const handleUpdateCanvasPosition = (id, x, y) => {
+  const handleUpdateCanvasPosition = useCallback((id, x, y) => {
+    const doc = canvasDocuments.find(d => d._id === id);
+    if (doc && Math.abs(doc.x - x) < 1 && Math.abs(doc.y - y) < 1) return;
+
+    saveHistoryPoint();
     setCanvasDocuments(prev => prev.map(d =>
       d._id === id ? { ...d, x, y } : d
     ));
-  };
+  }, [canvasDocuments, saveHistoryPoint]);
 
   const handleUpdateCanvasDimensions = useCallback((id, width, height) => {
+    const doc = canvasDocuments.find(d => d._id === id);
+    // Use a small epsilon for float comparisons if needed, though usually pixels are close integers
+    const currentW = doc?.width || 350;
+    const currentH = doc?.height || 0;
+
+    // Check if height is effectively "auto" (null/0) and we are setting it to something specific?
+    // If doc.height is null, currentH is 0. If new height is provided, it changed.
+    // If new height is null/undefined?
+
+    // If doc is not found, we shouldn't update anyway, but safety first.
+    if (doc && Math.abs(currentW - width) < 2 && Math.abs(currentH - (height || 0)) < 2) {
+      return;
+    }
+
+    saveHistoryPoint();
     setCanvasDocuments(prev => prev.map(d =>
       d._id === id ? { ...d, width, height } : d
     ));
-  }, []);
+  }, [canvasDocuments, saveHistoryPoint]);
 
-  const handleUpdateCanvasPositions = (updates) => {
+  const handleUpdateCanvasPositions = useCallback((updates) => {
     // updates: { [id]: { x, y } }
+
+    // Check if any update is meaningful
+    let hasChange = false;
+    const ids = Object.keys(updates);
+
+    for (const id of ids) {
+      const { x, y } = updates[id];
+
+      // Check docs
+      const doc = canvasDocuments.find(d => d._id === id);
+      if (doc) {
+        if (Math.abs(doc.x - x) > 1 || Math.abs(doc.y - y) > 1) {
+          hasChange = true;
+          break;
+        }
+      }
+
+      // Check gaps
+      const gap = gapNodes.find(n => n.id === id);
+      if (gap) {
+        if (Math.abs(gap.x - x) > 1 || Math.abs(gap.y - y) > 1) {
+          hasChange = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasChange) return;
+
+    saveHistoryPoint();
+
     setCanvasDocuments(prev => prev.map(d => {
       if (updates[d._id]) {
         return { ...d, x: updates[d._id].x, y: updates[d._id].y };
@@ -239,9 +397,10 @@ function App() {
       }
       return n;
     }));
-  };
+  }, [canvasDocuments, gapNodes, saveHistoryPoint]);
 
   const handleCloneCanvasDocument = (id) => {
+    saveHistoryPoint();
     const docToClone = canvasDocuments.find(d => d._id === id);
     if (!docToClone) return;
 
@@ -259,10 +418,12 @@ function App() {
   };
 
   const handleDeleteCanvasDocument = (id) => {
+    saveHistoryPoint();
     setCanvasDocuments(prev => prev.filter(d => d._id !== id));
   };
 
   const handleDeleteCanvasDocuments = (ids) => {
+    saveHistoryPoint();
     const idsSet = new Set(ids);
     setCanvasDocuments(prev => prev.filter(d => !idsSet.has(d._id)));
     setGapNodes(prev => prev.filter(n => !idsSet.has(n.id)));
@@ -270,6 +431,7 @@ function App() {
 
 
   const handleToggleExpand = useCallback((docId, path) => {
+    saveHistoryPoint();
     setCanvasDocuments(prev => prev.map(doc => {
       if (doc._id === docId) {
         const currentPaths = doc.expandedPaths || [];
@@ -280,32 +442,66 @@ function App() {
       }
       return doc;
     }));
-  }, []);
+  }, [saveHistoryPoint]);
 
   const handleToggleBackdrop = useCallback((docId) => {
+    saveHistoryPoint();
     setCanvasDocuments(prev => prev.map(doc => {
       if (doc._id === docId) {
         return { ...doc, dimmed: !doc.dimmed };
       }
       return doc;
     }));
-  }, []);
+  }, [saveHistoryPoint]);
 
   const handleUpdateCanvasDocumentData = useCallback((id, newData) => {
+    saveHistoryPoint();
     setCanvasDocuments(prev => prev.map(doc => {
       if (doc._id === id) {
         return { ...doc, data: newData };
       }
       return doc;
     }));
-  }, []);
+  }, [saveHistoryPoint]);
 
   const handleIdColorChange = useCallback((id) => {
+    saveHistoryPoint();
     setIdColorOverrides(prev => ({
       ...prev,
       [id]: (prev[id] || 0) + 1
     }));
-  }, []);
+  }, [saveHistoryPoint]);
+
+  // Wrappers for visual state setters to ensure history tracking
+  const handleMarkedSourcesChange = useCallback((updater) => {
+    saveHistoryPoint();
+    setMarkedSources(updater);
+  }, [saveHistoryPoint]);
+
+  const handleHighlightedFieldsChange = useCallback((updater) => {
+    saveHistoryPoint();
+    setHighlightedFields(updater);
+  }, [saveHistoryPoint]);
+
+  const handleHoistedFieldsChange = useCallback((updater) => {
+    saveHistoryPoint();
+    setHoistedFields(updater);
+  }, [saveHistoryPoint]);
+
+  const handleArrowDirectionChange = useCallback((updater) => {
+    saveHistoryPoint();
+    setArrowDirection(updater);
+  }, [saveHistoryPoint]);
+
+  const handleShowBackdroppedArrowsChange = useCallback((updater) => {
+    saveHistoryPoint();
+    setShowBackdroppedArrows(updater);
+  }, [saveHistoryPoint]);
+
+  const handleShowAllArrowsChange = useCallback((updater) => {
+    saveHistoryPoint();
+    setShowAllArrows(updater);
+  }, [saveHistoryPoint]);
 
   const handleConnectRequest = useCallback((id) => {
     setConnectModalState({ isOpen: true, sourceId: id });
@@ -313,6 +509,8 @@ function App() {
 
   const handleConnectSubmit = (newDocs, collectionName) => {
     if (!newDocs || newDocs.length === 0) return;
+
+    saveHistoryPoint();
 
     // Add new docs to canvas
     setCanvasDocuments(prev => {
@@ -388,20 +586,18 @@ function App() {
 
   const handleConfirmSave = (name) => {
     const saves = getSavesFromStorage();
-    // Save current state
+    // Save current state using helper
+    const snapshot = getCanvasSnapshot(true); // Include View state for file saves
+
     saves[name] = {
-      documents: canvasDocuments,
-      gapNodes: gapNodes,
-      view: canvasView,
-      markedSources: Array.from(markedSources), // Convert Set to Array for JSON serialization
-      highlightedFields: Array.from(highlightedFields), // Convert Set to Array for JSON serialization
-      hoistedFields: Array.from(hoistedFields), // Convert Set to Array for JSON serialization
-      arrowDirection: arrowDirection,
-      showBackdroppedArrows: showBackdroppedArrows,
-      showAllArrows: showAllArrows,
-      idColorOverrides: idColorOverrides,
+      ...snapshot,
+      // Convert Sets to Arrays for JSON serialization (getCanvasSnapshot returns Sets for internal use)
+      markedSources: Array.from(snapshot.markedSources),
+      highlightedFields: Array.from(snapshot.highlightedFields),
+      hoistedFields: Array.from(snapshot.hoistedFields),
       timestamp: Date.now()
     };
+
     localStorage.setItem('mongoDV_saves_v1', JSON.stringify(saves));
     setCurrentSaveName(name); // Track the saved name
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
@@ -424,20 +620,16 @@ function App() {
     const saves = getSavesFromStorage();
     const save = saves[name];
     if (save) {
-      if (save.documents) setCanvasDocuments(save.documents);
-      if (save.gapNodes) setGapNodes(save.gapNodes);
-      if (save.view) setCanvasView(save.view);
-      if (save.markedSources) setMarkedSources(new Set(save.markedSources)); // Restore Set from Array
-      if (save.highlightedFields) setHighlightedFields(new Set(save.highlightedFields)); // Restore Set from Array
-      if (save.hoistedFields) setHoistedFields(new Set(save.hoistedFields)); // Restore Set from Array
-      if (save.hoistedFields) setHoistedFields(new Set(save.hoistedFields)); // Restore Set from Array
-      if (save.arrowDirection) setArrowDirection(save.arrowDirection);
-      if (save.showBackdroppedArrows !== undefined) setShowBackdroppedArrows(save.showBackdroppedArrows);
-      if (save.showAllArrows !== undefined) setShowAllArrows(save.showAllArrows);
-      if (save.idColorOverrides) setIdColorOverrides(save.idColorOverrides);
-      else setIdColorOverrides({});
+      // Restore using helper
+      restoreCanvasSnapshot(save, true); // Include view state restoration
+
       setCurrentSaveName(name); // Track the loaded save name
       showToast(`Loaded "${name}"`, 'info', 2000);
+
+      // Clear history logic since we loaded a fresh state? 
+      // Usually loading a file clears undo history or pushes the load as a massive change.
+      // Let's clear it to avoid invalid state transitions.
+      history.clear();
     }
     setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
   };
@@ -455,6 +647,7 @@ function App() {
     })).sort((a, b) => b.timestamp - a.timestamp);
     setSaveLoadModalState(prev => ({ ...prev, savedList: list }));
   };
+
 
   const Sidebar = () => (
     <div style={{
@@ -772,19 +965,23 @@ function App() {
                 onUpdateData={handleUpdateCanvasDocumentData}
                 onAddCustomDocument={handleAddCustomDocument}
                 markedSources={markedSources}
-                onMarkedSourcesChange={setMarkedSources}
+                onMarkedSourcesChange={handleMarkedSourcesChange}
                 highlightedFields={highlightedFields}
-                onHighlightedFieldsChange={setHighlightedFields}
+                onHighlightedFieldsChange={handleHighlightedFieldsChange}
                 hoistedFields={hoistedFields}
-                onHoistedFieldsChange={setHoistedFields}
+                onHoistedFieldsChange={handleHoistedFieldsChange}
                 arrowDirection={arrowDirection}
-                onArrowDirectionChange={setArrowDirection}
+                onArrowDirectionChange={handleArrowDirectionChange}
                 showBackdroppedArrows={showBackdroppedArrows}
-                onShowBackdroppedArrowsChange={setShowBackdroppedArrows}
+                onShowBackdroppedArrowsChange={handleShowBackdroppedArrowsChange}
                 showAllArrows={showAllArrows}
-                onShowAllArrowsChange={setShowAllArrows}
+                onShowAllArrowsChange={handleShowAllArrowsChange}
                 idColorOverrides={idColorOverrides}
                 onIdColorChange={handleIdColorChange}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={history.canUndo}
+                canRedo={history.canRedo}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

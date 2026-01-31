@@ -766,7 +766,11 @@ const Canvas = ({
     onUpdateData,
     onAddCustomDocument,
     idColorOverrides = {},
-    onIdColorChange
+    onIdColorChange,
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo
 }) => {
     const { showToast } = useToast();
     // destruct defaults if undefined to avoid crash, though App passes them
@@ -1744,6 +1748,86 @@ const Canvas = ({
                         Rearrange Horizontally
                     </button>
                     <button
+                        disabled={selectedIds.length < 2}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (selectedIds.length < 2) return;
+
+                            // 1. Collect all items
+                            const selectedDocs = documents.filter(d => selectedIds.includes(d._id));
+                            const selectedGapNodes = gapNodes.filter(n => selectedIds.includes(n.id));
+
+                            const allItems = [
+                                ...selectedDocs.map(d => ({
+                                    id: d._id,
+                                    x: d.x,
+                                    y: d.y,
+                                    height: d.height || 100, // Default min height
+                                    type: 'doc'
+                                })),
+                                ...selectedGapNodes.map(n => ({
+                                    id: n.id,
+                                    x: n.x,
+                                    y: n.y,
+                                    height: 40, // Estimated height for gap node
+                                    type: 'gap'
+                                }))
+                            ];
+
+                            if (allItems.length < 2) return;
+
+                            // 2. Sort by Y position
+                            allItems.sort((a, b) => a.y - b.y);
+
+                            // 3. Calculate new positions
+                            const startX = allItems[0].x;
+                            let currentY = allItems[0].y;
+                            const updates = {};
+
+                            allItems.forEach((item) => {
+                                // For docs, we might need actual current height from DOM if avail, 
+                                // but state height is safer if accurate. 
+                                // To be precise, let's try to get DOM height if possible, else fallback.
+                                let itemHeight = item.height;
+                                const el = cardRefs.current.get(item.id);
+                                if (el) {
+                                    itemHeight = el.offsetHeight;
+                                }
+
+                                updates[item.id] = {
+                                    x: startX,
+                                    y: currentY
+                                };
+
+                                // Prepare Y for next item
+                                currentY += itemHeight + 50;
+                            });
+
+                            onUpdatePositions && onUpdatePositions(updates);
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: selectedIds.length < 2 ? '#64748b' : '#e2e8f0',
+                            cursor: selectedIds.length < 2 ? 'not-allowed' : 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => {
+                            if (selectedIds.length >= 2) e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                        }}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <span style={{ marginRight: '8px' }}>↕</span>
+                        Arrange Vertically
+                    </button>
+                    <button
                         onClick={(e) => {
                             e.stopPropagation();
                             const idsToProcess = selectedIds.length > 0 ? selectedIds : [cardContextMenu.docId];
@@ -2067,6 +2151,39 @@ const Canvas = ({
             }}
                 onMouseDown={e => e.stopPropagation()} // Prevent pan starting from HUD
             >
+                <button
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    title="Undo (Ctrl+Z)"
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: canUndo ? '#e2e8f0' : '#475569',
+                        cursor: canUndo ? 'pointer' : 'not-allowed',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center'
+                    }}
+                >
+                    ↩️
+                </button>
+                <button
+                    onClick={onRedo}
+                    disabled={!canRedo}
+                    title="Redo (Ctrl+Shift+Z)"
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: canRedo ? '#e2e8f0' : '#475569',
+                        cursor: canRedo ? 'pointer' : 'not-allowed',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center'
+                    }}
+                >
+                    ↪️
+                </button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button onClick={() => onViewStateChange(prev => ({ ...prev, zoom: Math.max(prev.zoom - 0.1, 0.1) }))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>-</button>
                 <span style={{ minWidth: '40px', textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
                 <button onClick={() => onViewStateChange(prev => ({ ...prev, zoom: Math.min(prev.zoom + 0.1, 5) }))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>+</button>
@@ -2160,7 +2277,7 @@ const Canvas = ({
                 <button onClick={onSaveAs} title="Save As New..." style={{ background: 'transparent', border: 'none', color: '#a78bfa', cursor: 'pointer', fontWeight: 600 }}>Save As</button>
                 <button onClick={onLoad} title="Load Canvas State" style={{ background: 'transparent', border: 'none', color: '#4ade80', cursor: 'pointer', fontWeight: 600 }}>Load</button>
             </div>
-        </div>
+        </div >
     );
 };
 
