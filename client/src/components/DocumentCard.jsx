@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useConnection } from '../contexts/ConnectionContext';
 import { getColorFromId } from '../utils/colors';
+import { useDragAwareClick } from '../hooks/useDragAwareClick';
 
 const isObjectId = (value) => {
     return typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
@@ -11,6 +12,7 @@ const isDate = (value) => {
         /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/.test(value) &&
         !isNaN(Date.parse(value));
 };
+
 
 const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, docId, path, collection }) => {
     const { registerNode, unregisterNode, markedSources, idColorOverrides = {}, onIdColorChange } = useConnection();
@@ -31,6 +33,24 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
         }
     }, [value, isIdField, isMarkedSource, registerNode, unregisterNode]);
 
+    // Drag-aware handlers
+    const idColorHandlers = useDragAwareClick((e) => { e.stopPropagation(); onIdColorChange(value); });
+    const connectHandlers = useDragAwareClick((e) => {
+        if (onConnect) {
+            e.stopPropagation();
+            onConnect(value);
+        }
+    });
+    const flagHandlers = useDragAwareClick((e) => { e.stopPropagation(); onFlagClick && onFlagClick(value); });
+    const dateHandlers = useDragAwareClick((e) => {
+        if (onDateClick) {
+            e.stopPropagation();
+            const stableId = `date-${docId}-${path}`;
+            onDateClick(value, e, stableId);
+        }
+    });
+
+
     if (value === null) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>null</span>;
     if (value === undefined) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>undefined</span>;
 
@@ -48,7 +68,8 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     {onIdColorChange && (
                         <button
-                            onClick={(e) => { e.stopPropagation(); onIdColorChange(value); }}
+                            onMouseDown={idColorHandlers.onMouseDown}
+                            onClick={idColorHandlers.onClick}
                             title="Randomize Color"
                             style={{
                                 background: 'transparent',
@@ -70,12 +91,8 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
                     )}
                     <span
                         ref={spanRef}
-                        onClick={(e) => {
-                            if (onConnect) {
-                                e.stopPropagation();
-                                onConnect(value);
-                            }
-                        }}
+                        onMouseDown={connectHandlers.onMouseDown}
+                        onClick={connectHandlers.onClick}
                         style={{
                             color: getColorFromId(value, idColorOverrides[value] || 0),
                             fontFamily: 'monospace',
@@ -89,7 +106,8 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
                     </span>
                     {(isIdField || isMarkedSource) ? null : (
                         <button
-                            onClick={(e) => { e.stopPropagation(); onFlagClick && onFlagClick(value); }}
+                            onMouseDown={flagHandlers.onMouseDown}
+                            onClick={flagHandlers.onClick}
                             title="Go to definition"
                             style={{
                                 background: 'transparent',
@@ -115,12 +133,8 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
             return (
                 <span
                     id={stableId}
-                    onClick={(e) => {
-                        if (onDateClick) {
-                            e.stopPropagation();
-                            onDateClick(value, e, stableId);
-                        }
-                    }}
+                    onMouseDown={dateHandlers.onMouseDown}
+                    onClick={dateHandlers.onClick}
                     style={{
                         color: '#22d3ee',
                         cursor: onDateClick ? 'pointer' : 'text',
@@ -136,11 +150,14 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
         }
         // For marked sources that aren't ObjectIds or Dates, attach the ref
         if (isMarkedSource) {
+            const markedColorHandlers = useDragAwareClick((e) => { e.stopPropagation(); onIdColorChange(value); });
+
             return (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     {onIdColorChange && (
                         <button
-                            onClick={(e) => { e.stopPropagation(); onIdColorChange(value); }}
+                            onMouseDown={markedColorHandlers.onMouseDown}
+                            onClick={markedColorHandlers.onClick}
                             title="Randomize Color"
                             style={{
                                 background: 'transparent',
@@ -184,19 +201,21 @@ const CollapsibleField = ({ label, children, typeLabel, initialOpen = false, isO
     const isControlled = controlledIsOpen !== undefined;
     const isOpen = isControlled ? controlledIsOpen : localIsOpen;
 
-    const handleClick = (e) => {
+
+    const { onMouseDown, onClick } = useDragAwareClick((e) => {
         e.stopPropagation();
         if (isControlled && onToggle) {
             onToggle();
         } else {
             setLocalIsOpen(!localIsOpen);
         }
-    };
+    });
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
             <div
-                onClick={handleClick}
+                onMouseDown={onMouseDown}
+                onClick={onClick}
                 style={{
                     display: 'flex',
                     alignItems: 'center',

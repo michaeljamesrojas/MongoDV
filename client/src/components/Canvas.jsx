@@ -4,6 +4,7 @@ import DocumentCard from './DocumentCard';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import { useToast } from '../contexts/ToastContext';
 import { getColorFromId } from '../utils/colors';
+import { useDragAwareClick } from '../hooks/useDragAwareClick';
 
 const getValueByPath = (obj, path) => {
     if (!path) return obj;
@@ -478,7 +479,8 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <button
                         title="Toggle Backdrop"
-                        onClick={(e) => { e.stopPropagation(); onToggleBackdrop && onToggleBackdrop(doc._id); }}
+                        onMouseDown={useDragAwareClick((e) => { e.stopPropagation(); onToggleBackdrop && onToggleBackdrop(doc._id); }).onMouseDown}
+                        onClick={useDragAwareClick((e) => { e.stopPropagation(); onToggleBackdrop && onToggleBackdrop(doc._id); }).onClick}
                         style={{
                             background: 'transparent',
                             border: 'none',
@@ -499,11 +501,16 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                     {doc.collection === 'Custom' && (
                         <button
                             title="Edit"
-                            onClick={(e) => {
+                            onMouseDown={useDragAwareClick((e) => {
                                 e.stopPropagation();
                                 setIsEditing(true);
                                 setEditData(JSON.stringify(doc.data, null, 2));
-                            }}
+                            }).onMouseDown}
+                            onClick={useDragAwareClick((e) => {
+                                e.stopPropagation();
+                                setIsEditing(true);
+                                setEditData(JSON.stringify(doc.data, null, 2));
+                            }).onClick}
                             style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -523,7 +530,8 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                     )}
                     <button
                         title="Clone"
-                        onClick={(e) => { e.stopPropagation(); onClone && onClone(doc._id); }}
+                        onMouseDown={useDragAwareClick((e) => { e.stopPropagation(); onClone && onClone(doc._id); }).onMouseDown}
+                        onClick={useDragAwareClick((e) => { e.stopPropagation(); onClone && onClone(doc._id); }).onClick}
                         style={{
                             background: 'transparent',
                             border: 'none',
@@ -542,7 +550,8 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                     </button>
                     <button
                         title="Delete"
-                        onClick={(e) => { e.stopPropagation(); onDelete && onDelete(doc._id); }}
+                        onMouseDown={useDragAwareClick((e) => { e.stopPropagation(); onDelete && onDelete(doc._id); }).onMouseDown}
+                        onClick={useDragAwareClick((e) => { e.stopPropagation(); onDelete && onDelete(doc._id); }).onClick}
                         style={{
                             background: 'transparent',
                             border: 'none',
@@ -688,7 +697,8 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
         >
             {text}
             <button
-                onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
+                onMouseDown={useDragAwareClick((e) => { e.stopPropagation(); onDelete(node.id); }).onMouseDown}
+                onClick={useDragAwareClick((e) => { e.stopPropagation(); onDelete(node.id); }).onClick}
                 style={{
                     background: 'rgba(0,0,0,0.1)',
                     border: 'none',
