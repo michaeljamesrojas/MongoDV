@@ -12,6 +12,7 @@ const ConnectModal = ({ isOpen, onClose, sourceId, fieldPath, initialUri, onConn
     const [error, setError] = useState(null);
     const [schema, setSchema] = useState({});
     const [queryObject, setQueryObject] = useState({});
+    const [initialQuery, setInitialQuery] = useState(null);
 
     // Track if we've already auto-selected for this modal open
     const hasAutoSelectedDb = useRef(false);
@@ -22,6 +23,8 @@ const ConnectModal = ({ isOpen, onClose, sourceId, fieldPath, initialUri, onConn
     const [predictedHint, setPredictedHint] = useState(null);   // e.g., "Predicted from 'userId'"
     const [loadingDbs, setLoadingDbs] = useState(false);
     const [loadingCols, setLoadingCols] = useState(false);
+    const [loadingSchema, setLoadingSchema] = useState(false);
+
 
     // Fetch databases from server
     const fetchDatabases = async (autoSelect = false) => {
@@ -75,6 +78,10 @@ const ConnectModal = ({ isOpen, onClose, sourceId, fieldPath, initialUri, onConn
                         setSelectedCol(savedConnection.collection);
                         setAutoSelectHint(`Remembered: ${savedConnection.db}`);
                         setPredictedHint(`Remembered: ${savedConnection.collection}`);
+
+                        if (savedConnection.query) {
+                            setInitialQuery(savedConnection.query);
+                        }
 
                         // Load cached databases and collections
                         const cachedDbs = localStorage.getItem('mongoDV_cachedDatabases');
@@ -141,6 +148,19 @@ const ConnectModal = ({ isOpen, onClose, sourceId, fieldPath, initialUri, onConn
             }
         }
     }, [isOpen, initialUri, sourceId]);
+
+    const handleRefreshSchema = async () => {
+        if (!selectedDb || !selectedCol) return;
+        setLoadingSchema(true);
+        try {
+            const schemaData = await fetchSchema(initialUri, selectedDb, selectedCol);
+            setSchema(schemaData.schema || {});
+        } catch (err) {
+            console.error("Failed to refresh schema", err);
+        } finally {
+            setLoadingSchema(false);
+        }
+    };
 
     const loadCollections = async (dbName, autoPredict = true) => {
         setLoadingCols(true);
@@ -233,6 +253,7 @@ const ConnectModal = ({ isOpen, onClose, sourceId, fieldPath, initialUri, onConn
                     connectionHistory[fieldPath] = {
                         db: selectedDb,
                         collection: selectedCol,
+                        query: queryObject,
                         timestamp: Date.now()
                     };
                     localStorage.setItem('mongoDV_connectionHistory', JSON.stringify(connectionHistory));
@@ -393,12 +414,32 @@ const ConnectModal = ({ isOpen, onClose, sourceId, fieldPath, initialUri, onConn
 
                     {/* Query Builder */}
                     <div style={{ marginTop: '0.5rem' }}>
-                        <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.9rem', marginBottom: '0.4rem' }}>Filter Documents</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.4rem' }}>
+                            <label style={{ color: '#94a3b8', fontSize: '0.9rem', margin: 0 }}>Filter Documents</label>
+                            <button
+                                type="button"
+                                onClick={handleRefreshSchema}
+                                disabled={loadingSchema || !selectedDb || !selectedCol}
+                                title="Refresh fields/schema"
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#94a3b8',
+                                    cursor: (loadingSchema || !selectedDb || !selectedCol) ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.8rem',
+                                    padding: '0 4px',
+                                    opacity: (loadingSchema || !selectedDb || !selectedCol) ? 0.5 : 0.8
+                                }}
+                            >
+                                {loadingSchema ? '...' : '🔄'}
+                            </button>
+                        </div>
                         <QueryBuilder
                             schema={schema}
                             onQueryChange={setQueryObject}
                             showRunButton={false}
                             initialFilters={initialFilters}
+                            initialQuery={initialQuery}
                             style={{ background: 'rgba(15, 23, 42, 0.5)', marginBottom: '0', padding: '1rem' }}
                         />
                     </div>

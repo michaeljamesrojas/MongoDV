@@ -1,13 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-const QueryBuilder = ({ schema = {}, onRunQuery, onQueryChange, showRunButton = true, initialFilters = [], style = {} }) => {
+const QueryBuilder = ({ schema = {}, onRunQuery, onQueryChange, showRunButton = true, initialFilters = [], initialQuery = null, style = {} }) => {
     const [filters, setFilters] = useState(initialFilters);
     const [jsonPreview, setJsonPreview] = useState('{}');
+    const initializedRef = useRef(false);
 
     // Convert schema object to array of keys for dropdown
     const schemaKeys = Object.keys(schema);
 
     useEffect(() => {
+        if (!initializedRef.current) {
+            initializedRef.current = true;
+            if (initialQuery && filters.length === 0 && Object.keys(initialQuery).length > 0) {
+                const json = JSON.stringify(initialQuery, null, 2);
+                setJsonPreview(json);
+                if (onQueryChange) onQueryChange(initialQuery);
+                return;
+            }
+        }
+
         // Re-generate JSON when filters change
         const query = {};
         filters.forEach(filter => {
@@ -75,7 +86,7 @@ const QueryBuilder = ({ schema = {}, onRunQuery, onQueryChange, showRunButton = 
         // If field changes, update type to default for that field
         if (key === 'field') {
             newFilters[index].type = schema[val] || 'string';
-            newFilters[index].value = ''; // Reset value on field change
+            // newFilters[index].value = ''; // FIX: Don't reset value on field change
         }
 
         setFilters(newFilters);
@@ -171,10 +182,19 @@ const QueryBuilder = ({ schema = {}, onRunQuery, onQueryChange, showRunButton = 
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Query Preview (JSON)</div>
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Query Preview (JSON) - <i>You can edit this manually</i></div>
                 <textarea
-                    readOnly
                     value={jsonPreview}
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        setJsonPreview(val);
+                        try {
+                            const parsed = JSON.parse(val);
+                            if (onQueryChange) onQueryChange(parsed);
+                        } catch (e) {
+                            // Invalid JSON, don't update query object yet
+                        }
+                    }}
                     style={{
                         width: '100%',
                         height: '100px',
