@@ -428,6 +428,16 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                     onToggleBackdrop && onToggleBackdrop(doc._id);
                     return;
                 }
+
+                // Prevent drag when clicking resize handle (bottom-right corner)
+                const rect = e.currentTarget.getBoundingClientRect();
+                const isResizeHandle = e.clientX > rect.right - 20 && e.clientY > rect.bottom - 20;
+
+                if (isResizeHandle) {
+                    e.stopPropagation();
+                    return;
+                }
+
                 e.stopPropagation();
                 // We notify parent. Parent determines if it's a drag start or just selection.
                 // But we need to pass the event so parent gets clientX/Y.
