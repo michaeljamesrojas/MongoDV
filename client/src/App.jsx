@@ -120,7 +120,7 @@ function App() {
   React.useEffect(() => {
     const handleKeyDown = (e) => {
       // Check for Ctrl+Z or Cmd+Z
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         if (e.shiftKey) {
           // Redo: Ctrl+Shift+Z
           e.preventDefault();
@@ -132,7 +132,7 @@ function App() {
         }
       }
       // Redo: Ctrl+Y
-      else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleRedo();
       }
