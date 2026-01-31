@@ -50,12 +50,27 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
     const [lines, setLines] = useState([]);
     const frameRef = useRef();
     const lastUpdateTimeRef = useRef(0);
+    const panSettleTimeRef = useRef(0); // Track when panning stopped for settle delay
+    const wasPanningRef = useRef(false);
     const THROTTLE_MS = 32; // ~30fps when idle
+    const PAN_SETTLE_MS = 100; // Delay after panning before computing lines
 
     useEffect(() => {
         const updateLines = () => {
-            // Skip expensive updates during active panning for smooth performance
+            // Track panning state transitions for settle delay
             if (isPanning) {
+                wasPanningRef.current = true;
+                frameRef.current = requestAnimationFrame(updateLines);
+                return;
+            } else if (wasPanningRef.current) {
+                // Just stopped panning - record time and start settle period
+                wasPanningRef.current = false;
+                panSettleTimeRef.current = performance.now();
+            }
+
+            // Skip updates during settle period after panning
+            const timeSincePanStop = performance.now() - panSettleTimeRef.current;
+            if (panSettleTimeRef.current > 0 && timeSincePanStop < PAN_SETTLE_MS) {
                 frameRef.current = requestAnimationFrame(updateLines);
                 return;
             }
@@ -96,16 +111,13 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
                 else grouped[node.value].refs.push(node);
             });
 
-            // Helper to check if a node's parent card is dimmed
+            // Helper to check if a node's parent card is dimmed - optimized to avoid expensive DOM queries
             const isNodeDimmed = (nodeRef) => {
                 const cardEl = nodeRef.closest('[data-draggable-card]');
                 if (!cardEl) return false;
-                // Find the doc ID from the card - we check document IDs from our dimmedDocIds set
-                for (const doc of documents) {
-                    const docCard = document.querySelector(`[data-draggable-card][data-doc-id="${doc._id}"]`);
-                    if (docCard === cardEl && doc.dimmed) return true;
-                }
-                return false;
+                // Use the data-doc-id attribute directly instead of querying DOM
+                const docId = cardEl.getAttribute('data-doc-id');
+                return docId && dimmedDocIds.has(docId);
             };
 
             if (canvasRef.current) {
@@ -508,7 +520,9 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connec
                 // Dimming effect when backdrop is toggled
                 opacity: isDimmed ? 0.15 : 1,
                 filter: isDimmed ? 'blur(1px)' : 'none',
-                cursor: backdropToggleMode ? 'crosshair' : undefined
+                cursor: backdropToggleMode ? 'crosshair' : undefined,
+                // Performance: isolate layout/paint recalculations to this element
+                contain: 'layout style paint'
             }}
             onMouseDown={(e) => {
                 if (backdropToggleMode) {
@@ -1905,6 +1919,10 @@ const Canvas = ({
         // Direct DOM manipulation - no React re-render
         if (contentContainerRef.current) {
             contentContainerRef.current.style.transform = `translate(${newPanX}px, ${newPanY}px) scale(${zoom})`;
+            // Performance: hint browser to optimize for transform during pan
+            contentContainerRef.current.style.willChange = 'transform';
+            // Performance: disable pointer-events during pan to reduce hit-testing
+            contentContainerRef.current.style.pointerEvents = 'none';
         }
         if (gridRef.current) {
             gridRef.current.style.backgroundPosition = `${newPanX}px ${newPanY}px`;
@@ -1923,6 +1941,17 @@ const Canvas = ({
                 pan: { x: newPanX, y: newPanY }
             }));
             panStartRef.current = null;
+        }
+
+        // Clean up pan-mode styles with small settle delay for smoother resume
+        if (contentContainerRef.current) {
+            contentContainerRef.current.style.pointerEvents = '';
+            // Delay removing will-change to allow smooth settle
+            setTimeout(() => {
+                if (contentContainerRef.current) {
+                    contentContainerRef.current.style.willChange = '';
+                }
+            }, 50);
         }
 
         setIsPanning(false);
