@@ -31,6 +31,12 @@ const getDateFromStableId = (docMap, stableId) => {
     return isNaN(date.getTime()) ? null : date;
 };
 
+const getDocIdFromStableId = (stableId) => {
+    if (!stableId) return null;
+    const match = stableId.match(/^date-([^-]+)-/);
+    return match ? match[1] : stableId;
+};
+
 // Managed separately to avoid Canvas re-rendering on every frame
 const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
     // Track dimmed document IDs for line dimming
@@ -180,7 +186,8 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                                 y1: sourcePos.y,
                                 x2: gapScreenX,
                                 y2: gapScreenY,
-                                color: liveText.startsWith('After:') ? '#4ade80' : '#f87171'
+                                color: liveText.startsWith('After:') ? '#4ade80' : '#f87171',
+                                dimmed: dimmedDocIds.has(getDocIdFromStableId(node.sourceId)) || node.dimmed
                             });
                         }
                     }
@@ -212,7 +219,8 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                                 y1: gapScreenY,
                                 x2: targetPos.x,
                                 y2: targetPos.y,
-                                color: liveText.startsWith('After:') ? '#4ade80' : '#f87171'
+                                color: liveText.startsWith('After:') ? '#4ade80' : '#f87171',
+                                dimmed: dimmedDocIds.has(getDocIdFromStableId(node.targetId)) || node.dimmed
                             });
                         }
                     }
@@ -1282,8 +1290,8 @@ const Canvas = ({
                 panStartRef.current = {
                     startMouseX: e.clientX,
                     startMouseY: e.clientY,
-                    startPanX: viewStateRef.current.pan.x,
-                    startPanY: viewStateRef.current.pan.y
+                    startPanX: viewState.pan.x,
+                    startPanY: viewState.pan.y
                 };
                 document.body.style.cursor = 'grabbing';
                 document.addEventListener('mousemove', handlePanMove);
