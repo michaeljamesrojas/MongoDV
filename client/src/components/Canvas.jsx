@@ -288,7 +288,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                         x2={line.x2}
                         y2={line.y2}
                         stroke={line.color || "#fbbf24"}
-                        strokeWidth="2"
+                        strokeWidth={2 * zoom}
                         strokeOpacity={line.dimmed ? (showBackdroppedArrows ? 0.1 : 0) : 0.6}
                         markerEnd={markerUrl}
                         style={{ transition: 'stroke-opacity 0.2s' }}
@@ -2435,7 +2435,8 @@ const Canvas = ({
                 gap: '10px',
                 alignItems: 'center',
                 border: '1px solid var(--glass-border)',
-                pointerEvents: 'auto'
+                pointerEvents: 'auto',
+                zIndex: 100
             }}
                 onMouseDown={e => e.stopPropagation()} // Prevent pan starting from HUD
             >

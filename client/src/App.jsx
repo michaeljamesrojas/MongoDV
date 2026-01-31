@@ -523,7 +523,8 @@ function App() {
         const newPaths = currentPaths.includes(path)
           ? currentPaths.filter(p => p !== path)
           : [...currentPaths, path];
-        return { ...doc, expandedPaths: newPaths };
+        // Reset height to null (auto) so the card resizes to fit new content
+        return { ...doc, expandedPaths: newPaths, height: null };
       }
       return doc;
     }));
