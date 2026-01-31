@@ -31,6 +31,7 @@ function App() {
   const [connectionHistoryVersion, setConnectionHistoryVersion] = useState(0);
   const [gapNodes, setGapNodes] = useState([]);
   const [textNodes, setTextNodes] = useState([]); // Array of { id, x, y, text, width, height, dimmed }
+  const [imageNodes, setImageNodes] = useState([]); // Array of { id, x, y, src, width, height, dimmed, originalSize, compressedSize }
   const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
   const [markedSources, setMarkedSources] = useState(new Set()); // Set<"collection:path">
   const [highlightedFields, setHighlightedFields] = useState(new Set()); // Set<"collection:path">
@@ -55,6 +56,7 @@ function App() {
       documents: canvasDocuments,
       gapNodes: gapNodes,
       textNodes: textNodes,
+      imageNodes: imageNodes,
       markedSources: new Set(markedSources), // Copy Set
       highlightedFields: new Set(highlightedFields), // Copy Set
       hoistedFields: new Set(hoistedFields), // Copy Set
@@ -65,7 +67,7 @@ function App() {
       // Optional view state (included for File Saves, excluded for Undo/Redo)
       view: includeView ? canvasView : undefined
     };
-  }, [canvasDocuments, gapNodes, textNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
+  }, [canvasDocuments, gapNodes, textNodes, imageNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
 
   // Helper: Restore state from a snapshot
   const restoreCanvasSnapshot = useCallback((snapshot, includeView = false) => {
@@ -75,6 +77,7 @@ function App() {
     if (snapshot.documents) setCanvasDocuments(snapshot.documents);
     if (snapshot.gapNodes) setGapNodes(snapshot.gapNodes);
     if (snapshot.textNodes) setTextNodes(snapshot.textNodes);
+    if (snapshot.imageNodes) setImageNodes(snapshot.imageNodes);
 
     // Sets need to be restored as Sets
     if (snapshot.markedSources) setMarkedSources(snapshot.markedSources instanceof Set ? snapshot.markedSources : new Set(snapshot.markedSources));
@@ -363,6 +366,43 @@ function App() {
     });
   }, [saveHistoryPoint]);
 
+  // Image Node Handlers
+  const handleAddImageNode = useCallback((newNode) => {
+    saveHistoryPoint();
+    setImageNodes(prev => [...prev, newNode]);
+  }, [saveHistoryPoint]);
+
+  const handleUpdateImageNode = useCallback((id, updates) => {
+    saveHistoryPoint();
+    setImageNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+  }, [saveHistoryPoint]);
+
+  const handleUpdateImageNodePosition = useCallback((id, x, y) => {
+    const node = imageNodes.find(n => n.id === id);
+    if (node && Math.abs(node.x - x) < 1 && Math.abs(node.y - y) < 1) return;
+
+    saveHistoryPoint();
+    setImageNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
+  }, [imageNodes, saveHistoryPoint]);
+
+  const handleDeleteImageNode = useCallback((id) => {
+    saveHistoryPoint();
+    setImageNodes(prev => prev.filter(n => n.id !== id));
+  }, [saveHistoryPoint]);
+
+  const handleToggleImageNodeBackdrop = useCallback((id) => {
+    saveHistoryPoint();
+    setImageNodes(prev => {
+      const idx = prev.findIndex(n => n.id === id);
+      if (idx !== -1) {
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
+      }
+      return prev;
+    });
+  }, [saveHistoryPoint]);
+
   const handleUpdateCanvasPosition = useCallback((id, x, y) => {
     const doc = canvasDocuments.find(d => d._id === id);
     if (doc && Math.abs(doc.x - x) < 1 && Math.abs(doc.y - y) < 1) return;
@@ -430,6 +470,15 @@ function App() {
           break;
         }
       }
+
+      // Check image nodes
+      const imageNode = imageNodes.find(n => n.id === id);
+      if (imageNode) {
+        if (Math.abs(imageNode.x - x) > 1 || Math.abs(imageNode.y - y) > 1) {
+          hasChange = true;
+          break;
+        }
+      }
     }
 
     if (!hasChange) return;
@@ -454,7 +503,13 @@ function App() {
       }
       return n;
     }));
-  }, [canvasDocuments, gapNodes, textNodes, saveHistoryPoint]);
+    setImageNodes(prev => prev.map(n => {
+      if (updates[n.id]) {
+        return { ...n, x: updates[n.id].x, y: updates[n.id].y };
+      }
+      return n;
+    }));
+  }, [canvasDocuments, gapNodes, textNodes, imageNodes, saveHistoryPoint]);
 
   const handleCloneCanvasDocument = (id) => {
     saveHistoryPoint();
@@ -498,6 +553,19 @@ function App() {
         y: textNodeToClone.y + 20,
       };
       setTextNodes(prev => [...prev, newTextNode]);
+      return;
+    }
+
+    // 4. Try Image Node
+    const imageNodeToClone = imageNodes.find(n => n.id === id);
+    if (imageNodeToClone) {
+      const newImageNode = {
+        ...imageNodeToClone,
+        id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        x: imageNodeToClone.x + 20,
+        y: imageNodeToClone.y + 20,
+      };
+      setImageNodes(prev => [...prev, newImageNode]);
     }
   };
 
@@ -512,6 +580,7 @@ function App() {
     setCanvasDocuments(prev => prev.filter(d => !idsSet.has(d._id)));
     setGapNodes(prev => prev.filter(n => !idsSet.has(n.id)));
     setTextNodes(prev => prev.filter(n => !idsSet.has(n.id)));
+    setImageNodes(prev => prev.filter(n => !idsSet.has(n.id)));
   };
 
 
@@ -563,7 +632,22 @@ function App() {
     if (gapFound) return;
 
     // 3. Try Text Node
+    let textFound = false;
     setTextNodes(prev => {
+      const idx = prev.findIndex(n => n.id === docId);
+      if (idx !== -1) {
+        textFound = true;
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
+      }
+      return prev;
+    });
+
+    if (textFound) return;
+
+    // 4. Try Image Node
+    setImageNodes(prev => {
       const idx = prev.findIndex(n => n.id === docId);
       if (idx !== -1) {
         const newArr = [...prev];
@@ -1209,6 +1293,11 @@ function App() {
                 onUpdateTextNode={handleUpdateTextNode}
                 onUpdateTextNodePosition={handleUpdateTextNodePosition}
                 onDeleteTextNode={handleDeleteTextNode}
+                imageNodes={imageNodes}
+                onAddImageNode={handleAddImageNode}
+                onUpdateImageNode={handleUpdateImageNode}
+                onUpdateImageNodePosition={handleUpdateImageNodePosition}
+                onDeleteImageNode={handleDeleteImageNode}
                 onConnect={handleConnectRequest}
                 onQuickConnect={handleQuickConnect}
                 connectionHistoryVersion={connectionHistoryVersion}

@@ -478,8 +478,6 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connec
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
                     cursor: 'grab',
                     userSelect: 'none',
                     flexShrink: 0
@@ -901,6 +899,225 @@ const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpda
     );
 });
 
+const DraggableImageNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpdateImage, isSelected, onMouseDown, registerRef, onContextMenu }) => {
+    const nodeRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const isUploading = useRef(false);
+
+    const currentX = node.x;
+    const currentY = node.y;
+
+    const deleteHandler = useDragAwareClick((e) => { e.stopPropagation(); onDelete(node.id); });
+
+    useEffect(() => {
+        if (registerRef) {
+            registerRef(node.id, nodeRef.current);
+            return () => registerRef(node.id, null);
+        }
+    }, [node.id, registerRef]);
+
+    // Handle Image Upload & Compression
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        isUploading.current = true;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+                // Compression Logic
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxDim = 1024;
+
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                const originalSizeMB = (file.size / 1024 / 1024).toFixed(2);
+
+                // Base64 size is approx 1.33 * length, but let's just use string length approximation
+                const compressedSizeMB = (compressedDataUrl.length * 0.75 / 1024 / 1024).toFixed(2);
+
+                onUpdateImage(node.id, {
+                    src: compressedDataUrl,
+                    width: node.width || 300, // Default width
+                    height: node.height || (300 * height / width), // Maintain aspect ratio
+                    originalSize: originalSizeMB,
+                    compressedSize: compressedSizeMB
+                });
+
+                isUploading.current = false;
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleUploadClick = useDragAwareClick((e) => {
+        e.stopPropagation();
+        if (fileInputRef.current) fileInputRef.current.click();
+    });
+
+    const backdropHandler = useDragAwareClick((e) => {
+        // We'll need a toggle backdrop handler passed down, or use context menu
+        e.stopPropagation();
+    });
+
+    return (
+        <div
+            ref={nodeRef}
+            onContextMenu={(e) => onContextMenu && onContextMenu(e, node.id)}
+            onMouseDown={(e) => {
+                e.stopPropagation();
+                onMouseDown(e, node.id);
+            }}
+            style={{
+                position: 'absolute',
+                left: currentX,
+                top: currentY,
+                width: node.width || 300,
+                height: node.height || 'auto',
+                transform: 'translate(-50%, -50%)', // Centered anchor
+                background: node.src ? 'transparent' : '#1e293b',
+                border: isSelected ? '2px solid var(--primary)' : (node.src ? 'none' : '1px solid var(--glass-border)'),
+                borderRadius: '8px',
+                cursor: 'grab',
+                zIndex: isSelected ? 2001 : 100,
+                boxShadow: isSelected ? '0 0 0 2px rgba(96, 165, 250, 0.2), 0 8px 16px rgba(0,0,0,0.4)' : (node.src ? 'none' : '0 4px 6px rgba(0,0,0,0.2)'),
+                userSelect: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'box-shadow 0.2s, border 0.2s, opacity 0.2s, filter 0.2s',
+                opacity: node.dimmed ? 0.3 : 1,
+                filter: node.dimmed ? 'blur(1px) grayscale(50%)' : 'none',
+                overflow: 'hidden',
+                resize: node.src ? 'both' : 'none' // Allow resize only if image exists? Or always?
+                // Actually regular div resize doesn't work well with absolute positioning + transform translate(-50%)
+                // We typically need a handle or custom resize logic for centered nodes.
+                // For now, let's rely on DraggableCard's ResizeObserver logic if we want to support verify resizing.
+                // But DraggableCard uses resize: both style. 
+            }}
+        // We need to support resizing. DraggableCard implementation uses `resize: both` and ResizeObserver.
+        // We can do the same here if we add `resize: both` and `overflow: hidden`.
+        // However, transform translate(-50%, -50%) messes up CSS resize handles because they stay at the limit of the element,
+        // but visual bounds shift.
+        // DraggableCard uses left/top without translation for anchor?
+        // Let's check DraggableCard. 
+        // DraggableCard uses `left: currentX, top: currentY`.
+        // DraggableGapNode uses `transform: translate(-50%, -50%)`.
+        // TextNode uses `transform: translate(-50%, -50%)`.
+        // If we want resize handles to work naturally, we might want top-left anchor or custom handles.
+        // For simplicity, let's try `resize: both` but we might need to adjust logic later if handles are wonky.
+        >
+            <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                accept="image/*"
+                onChange={handleFileChange}
+            />
+
+            {node.src ? (
+                <>
+                    <img
+                        src={node.src}
+                        alt="Node"
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain', // or cover? contain is safer
+                            pointerEvents: 'none'
+                        }}
+                    />
+                    {/* Size Info Overlay */}
+                    {isSelected && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: 'rgba(0,0,0,0.6)',
+                            color: '#e2e8f0',
+                            fontSize: '0.7rem',
+                            padding: '4px',
+                            textAlign: 'center'
+                        }}>
+                            {node.originalSize}MB ➔ {node.compressedSize}MB
+                        </div>
+                    )}
+                </>
+            ) : (
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '2rem', opacity: 0.5 }}>🖼️</span>
+                    <button
+                        onMouseDown={handleUploadClick.onMouseDown}
+                        onClick={handleUploadClick.onClick}
+                        style={{
+                            background: 'var(--primary)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '6px 12px',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Choose Image
+                    </button>
+                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', textAlign: 'center' }}>
+                        Images are compressed &<br />saved locally
+                    </div>
+                </div>
+            )}
+
+            <button
+                onMouseDown={deleteHandler.onMouseDown}
+                onClick={deleteHandler.onClick}
+                style={{
+                    position: 'absolute',
+                    top: '4px',
+                    right: '4px', // Adjusted for inside container
+                    background: '#ef4444',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '50%',
+                    width: '24px',
+                    height: '24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: 'white',
+                    fontSize: '0.8rem',
+                    padding: 0,
+                    opacity: isSelected ? 1 : 0,
+                    transition: 'opacity 0.2s',
+                    pointerEvents: isSelected ? 'auto' : 'none',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                }}
+            >
+                ✕
+            </button>
+        </div>
+    );
+});
+
 const Canvas = ({
     documents,
     viewState,
@@ -929,6 +1146,11 @@ const Canvas = ({
     onUpdateTextNode,
     onUpdateTextNodePosition,
     onDeleteTextNode,
+    imageNodes = [],
+    onAddImageNode,
+    onUpdateImageNode,
+    onUpdateImageNodePosition,
+    onDeleteImageNode,
     onToggleExpand,
     markedSources = new Set(),
     onMarkedSourcesChange,
@@ -1775,6 +1997,28 @@ const Canvas = ({
                             />
                         ))}
 
+                        {/* Image Nodes */}
+                        {imageNodes.map(node => (
+                            <DraggableImageNode
+                                key={node.id}
+                                node={node}
+                                zoom={zoom}
+                                onUpdatePosition={onUpdateImageNodePosition}
+                                onUpdateImage={onUpdateImageNode}
+                                onDelete={onDeleteImageNode}
+                                isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
+                                onMouseDown={handleCardMouseDown}
+                                onContextMenu={handleNodeContextMenu}
+                                registerRef={(id, el) => {
+                                    if (el) {
+                                        cardRefs.current.set(id, el);
+                                    } else {
+                                        cardRefs.current.delete(id);
+                                    }
+                                }}
+                            />
+                        ))}
+
                         {pendingCustomCard && (
                             <div style={{
                                 position: 'absolute',
@@ -2423,6 +2667,43 @@ const Canvas = ({
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                         📝 Add Text
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const canvasRect = canvasRef.current.getBoundingClientRect();
+                            const x = (canvasContextMenu.x - canvasRect.left - pan.x) / zoom;
+                            const y = (canvasContextMenu.y - canvasRect.top - pan.y) / zoom;
+
+                            onAddImageNode({
+                                id: `image-${Date.now()}`,
+                                x,
+                                y,
+                                src: null, // Starts empty
+                                width: 300,
+                                height: 200,
+                                dimmed: false
+                            });
+                            setCanvasContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        🖼 Add Image
                     </button>
 
                 </div>
