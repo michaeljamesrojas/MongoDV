@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useConnection } from '../contexts/ConnectionContext';
 import { getColorFromId } from '../utils/colors';
 import { useDragAwareClick } from '../hooks/useDragAwareClick';
+import { predictCollectionName, findBestMatch } from '../utils/prediction';
 
 const isObjectId = (value) => {
     return typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
@@ -14,7 +15,7 @@ const isDate = (value) => {
 };
 
 
-const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, docId, path, collection }) => {
+const ValueDisplay = ({ value, onConnect, onQuickConnect, connectionHistoryVersion, onDateClick, onFlagClick, isIdField, docId, path, collection }) => {
     const { registerNode, unregisterNode, markedSources, idColorOverrides = {}, onIdColorChange } = useConnection();
     const spanRef = useRef(null);
 
@@ -47,6 +48,58 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
             e.stopPropagation();
             const stableId = `date-${docId}-${path}`;
             onDateClick(value, e, stableId);
+        }
+    });
+
+    // Quick connect logic - check for remembered or predicted connections
+    const quickConnectInfo = useMemo(() => {
+        if (!path || isIdField || !onQuickConnect) return null;
+
+        try {
+            // Check connection history first
+            const historyRaw = localStorage.getItem('mongoDV_connectionHistory');
+            if (historyRaw) {
+                const history = JSON.parse(historyRaw);
+                if (history[path]) {
+                    return {
+                        type: 'remembered',
+                        db: history[path].db,
+                        collection: history[path].collection
+                    };
+                }
+            }
+
+            // Try prediction
+            const predicted = predictCollectionName(path);
+            if (predicted) {
+                // Get cached databases and try to find a match
+                const cachedDb = localStorage.getItem('mongoDV_lastUsedDb');
+                if (cachedDb) {
+                    const cachedCollectionsRaw = localStorage.getItem(`mongoDV_cachedCollections_${cachedDb}`);
+                    if (cachedCollectionsRaw) {
+                        const cachedCollections = JSON.parse(cachedCollectionsRaw);
+                        const match = findBestMatch(predicted, cachedCollections);
+                        if (match) {
+                            return {
+                                type: 'predicted',
+                                db: cachedDb,
+                                collection: match
+                            };
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // localStorage unavailable
+        }
+        return null;
+    }, [path, isIdField, onQuickConnect, connectionHistoryVersion]);
+
+    const quickConnectHandlers = useDragAwareClick((e) => {
+        if (quickConnectInfo && onQuickConnect) {
+            e.stopPropagation();
+            // Pass docId (source document), value (ID to query), path, db, collection
+            onQuickConnect(docId, value, path, quickConnectInfo.db, quickConnectInfo.collection);
         }
     });
 
@@ -105,25 +158,51 @@ const ValueDisplay = ({ value, onConnect, onDateClick, onFlagClick, isIdField, d
                         {value}
                     </span>
                     {(isIdField || isMarkedSource) ? null : (
-                        <button
-                            onMouseDown={flagHandlers.onMouseDown}
-                            onClick={flagHandlers.onClick}
-                            title="Go to definition"
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: '2px',
-                                fontSize: '0.8rem',
-                                opacity: 0.7,
-                                transition: 'transform 0.1s',
-                                marginLeft: '2px'
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.2)'}
-                            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                        >
-                            🚩
-                        </button>
+                        <>
+                            {quickConnectInfo && (
+                                <button
+                                    onMouseDown={quickConnectHandlers.onMouseDown}
+                                    onClick={quickConnectHandlers.onClick}
+                                    title={quickConnectInfo.type === 'remembered'
+                                        ? `Quick connect to ${quickConnectInfo.collection} (remembered)`
+                                        : `Quick connect to ${quickConnectInfo.collection} (predicted)`}
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '2px',
+                                        fontSize: '0.8rem',
+                                        opacity: 0.8,
+                                        transition: 'transform 0.1s, opacity 0.1s',
+                                        marginLeft: '2px',
+                                        color: quickConnectInfo.type === 'remembered' ? '#4ade80' : '#fbbf24'
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.2)'; e.currentTarget.style.opacity = '1'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.opacity = '0.8'; }}
+                                >
+                                    {quickConnectInfo.type === 'remembered' ? '🚀' : '⚡'}
+                                </button>
+                            )}
+                            <button
+                                onMouseDown={flagHandlers.onMouseDown}
+                                onClick={flagHandlers.onClick}
+                                title="Go to definition"
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '2px',
+                                    fontSize: '0.8rem',
+                                    opacity: 0.7,
+                                    transition: 'transform 0.1s',
+                                    marginLeft: '2px'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.2)'}
+                                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                            >
+                                🚩
+                            </button>
+                        </>
                     )}
                 </span>
             );
@@ -240,7 +319,7 @@ const CollapsibleField = ({ label, children, typeLabel, initialOpen = false, isO
     );
 };
 
-const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClick, path = '', docId, collection, expandedPaths, onToggleExpand }) => {
+const DocumentCard = ({ data, isRoot = false, onConnect, onQuickConnect, connectionHistoryVersion, onDateClick, onFlagClick, path = '', docId, collection, expandedPaths, onToggleExpand }) => {
     // Extract ID if at root. Prefer passed docId (Wrapper ID) over data._id if available.
     const currentDocId = docId || (isRoot && data ? data._id : 'unknown');
 
@@ -271,6 +350,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClic
                                         <DocumentCard
                                             data={item}
                                             onConnect={onConnect}
+                                            onQuickConnect={onQuickConnect}
+                                            connectionHistoryVersion={connectionHistoryVersion}
                                             onDateClick={onDateClick}
                                             onFlagClick={onFlagClick}
                                             path={currentPath}
@@ -284,6 +365,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClic
                                     <ValueDisplay
                                         value={item}
                                         onConnect={onConnect}
+                                        onQuickConnect={onQuickConnect}
+                                        connectionHistoryVersion={connectionHistoryVersion}
                                         onDateClick={onDateClick}
                                         onFlagClick={onFlagClick}
                                         path={currentPath}
@@ -337,6 +420,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClic
                                 <DocumentCard
                                     data={value}
                                     onConnect={onConnect}
+                                    onQuickConnect={onQuickConnect}
+                                    connectionHistoryVersion={connectionHistoryVersion}
                                     onDateClick={onDateClick}
                                     onFlagClick={onFlagClick}
                                     path={nextPath}
@@ -390,6 +475,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClic
                             <ValueDisplay
                                 value={value}
                                 onConnect={onConnect}
+                                onQuickConnect={onQuickConnect}
+                                connectionHistoryVersion={connectionHistoryVersion}
                                 onFlagClick={onFlagClick}
                                 isIdField={key === '_id'}
                                 onDateClick={onDateClick}
@@ -407,6 +494,8 @@ const DocumentCard = ({ data, isRoot = false, onConnect, onDateClick, onFlagClic
     return <ValueDisplay
         value={data}
         onConnect={onConnect}
+        onQuickConnect={onQuickConnect}
+        connectionHistoryVersion={connectionHistoryVersion}
         onDateClick={onDateClick}
         onFlagClick={onFlagClick}
         path={path}

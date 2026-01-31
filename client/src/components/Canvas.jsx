@@ -299,7 +299,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
     );
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions, onContextMenu }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connectionHistoryVersion, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions, onContextMenu }) => {
     const cardRef = useRef(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState('');
@@ -650,6 +650,8 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                         data={doc.data}
                         isRoot={true}
                         onConnect={onConnect}
+                        onQuickConnect={onQuickConnect}
+                        connectionHistoryVersion={connectionHistoryVersion}
                         onDateClick={onDateClick}
                         onFlagClick={onFlagClick}
                         onToggleExpand={onToggleExpand}
@@ -899,6 +901,8 @@ const Canvas = ({
     onUpdatePositions,
     onUpdateDimensions,
     onConnect,
+    onQuickConnect,
+    connectionHistoryVersion,
     onClone,
     onDelete,
     onDeleteMany,
@@ -1677,6 +1681,8 @@ const Canvas = ({
                                     doc={doc}
                                     zoom={zoom}
                                     onConnect={onConnect}
+                                    onQuickConnect={onQuickConnect}
+                                    connectionHistoryVersion={connectionHistoryVersion}
                                     onFlagClick={handleFlagClick}
                                     onClone={onClone}
                                     onDelete={(id) => {

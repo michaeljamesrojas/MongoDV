@@ -28,6 +28,7 @@ function App() {
   const [schema, setSchema] = useState({});
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
   const [canvasDocuments, setCanvasDocuments] = useState([]);
+  const [connectionHistoryVersion, setConnectionHistoryVersion] = useState(0);
   const [gapNodes, setGapNodes] = useState([]);
   const [textNodes, setTextNodes] = useState([]); // Array of { id, x, y, text, width, height, dimmed }
   const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
@@ -625,7 +626,40 @@ function App() {
     setConnectModalState({ isOpen: true, sourceId: id, fieldPath: fieldPath });
   }, []);
 
-  const handleConnectSubmit = (newDocs, collectionName) => {
+  const handleQuickConnect = useCallback(async (sourceDocId, idValue, fieldPath, dbName, colName) => {
+    try {
+      showToast(`Quick connecting to ${colName}...`, 'info', 1000);
+
+      // Build query matching QueryBuilder format - ObjectId uses { $oid: value }
+      const queryObject = {
+        _id: { $oid: idValue }
+      };
+
+      const data = await fetchDocuments(uri, dbName, colName, 20, queryObject);
+
+      if (data.documents && data.documents.length > 0) {
+        // Save to connection history so ⚡ becomes 🚀 next time
+        try {
+          const historyRaw = localStorage.getItem('mongoDV_connectionHistory');
+          const history = historyRaw ? JSON.parse(historyRaw) : {};
+          history[fieldPath] = { db: dbName, collection: colName };
+          localStorage.setItem('mongoDV_connectionHistory', JSON.stringify(history));
+          // Trigger re-render of icons
+          setConnectionHistoryVersion(v => v + 1);
+        } catch (e) { /* localStorage unavailable */ }
+
+        // Use sourceDocId for positioning (the document that contains the clicked field)
+        handleConnectSubmit(data.documents, colName, sourceDocId);
+      } else {
+        showToast('No documents found', 'warning', 2000);
+      }
+    } catch (err) {
+      console.error("Quick connect failed", err);
+      showToast(`Connection failed: ${err.message}`, 'error', 3000);
+    }
+  }, [uri, showToast]);
+
+  const handleConnectSubmit = (newDocs, collectionName, explicitSourceId = null) => {
     if (!newDocs || newDocs.length === 0) return;
 
     saveHistoryPoint();
@@ -635,7 +669,8 @@ function App() {
       const existingIds = new Set(prev.map(d => d._id));
 
       // Find source document position if available
-      const sourceDoc = prev.find(d => d._id === connectModalState.sourceId);
+      const sourceId = explicitSourceId || connectModalState.sourceId;
+      const sourceDoc = prev.find(d => d._id === sourceId);
       let baseX = 200;
       let baseY = 200;
 
@@ -1174,6 +1209,8 @@ function App() {
                 onUpdateTextNodePosition={handleUpdateTextNodePosition}
                 onDeleteTextNode={handleDeleteTextNode}
                 onConnect={handleConnectRequest}
+                onQuickConnect={handleQuickConnect}
+                connectionHistoryVersion={connectionHistoryVersion}
                 onClone={handleCloneCanvasDocument}
                 onDelete={handleDeleteCanvasDocument}
                 onDeleteMany={handleDeleteCanvasDocuments}
