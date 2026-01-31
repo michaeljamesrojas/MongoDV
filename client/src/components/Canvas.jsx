@@ -38,7 +38,7 @@ const getDocIdFromStableId = (stableId) => {
 };
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
+const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
     // Track dimmed document IDs for line dimming
     const dimmedDocIds = useMemo(() => {
         const set = new Set();
@@ -225,6 +225,61 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                         }
                     }
                 });
+
+                // 3. Diff Node Connections
+                diffNodes.forEach(node => {
+                    // Get diff node position from DOM or fallback to model
+                    let diffScreenX, diffScreenY;
+                    const diffEl = cardRefs?.current?.get(node.id);
+                    if (diffEl) {
+                        const rect = diffEl.getBoundingClientRect();
+                        diffScreenX = rect.left - canvasRect.left + rect.width / 2;
+                        diffScreenY = rect.top - canvasRect.top + rect.height / 2;
+                    } else {
+                        diffScreenX = node.x * zoom + pan.x;
+                        diffScreenY = node.y * zoom + pan.y;
+                    }
+
+                    // Source Document -> Diff Node
+                    const sourceDocEl = cardRefs?.current?.get(node.sourceDocId);
+                    if (sourceDocEl) {
+                        const sourceRect = sourceDocEl.getBoundingClientRect();
+                        if (sourceRect.width > 0) {
+                            const sourcePos = getCanvasCoords(sourceRect, 'right');
+
+                            newLines.push({
+                                id: `${node.id}-source`,
+                                x1: sourcePos.x,
+                                y1: sourcePos.y,
+                                x2: diffScreenX,
+                                y2: diffScreenY,
+                                color: '#f87171', // Red for source (old)
+                                dimmed: dimmedDocIds.has(node.sourceDocId) || node.dimmed,
+                                isDiff: true
+                            });
+                        }
+                    }
+
+                    // Diff Node -> Target Document
+                    const targetDocEl = cardRefs?.current?.get(node.targetDocId);
+                    if (targetDocEl) {
+                        const targetRect = targetDocEl.getBoundingClientRect();
+                        if (targetRect.width > 0) {
+                            const targetPos = getCanvasCoords(targetRect, 'left');
+
+                            newLines.push({
+                                id: `${node.id}-target`,
+                                x1: diffScreenX,
+                                y1: diffScreenY,
+                                x2: targetPos.x,
+                                y2: targetPos.y,
+                                color: '#4ade80', // Green for target (new)
+                                dimmed: dimmedDocIds.has(node.targetDocId) || node.dimmed,
+                                isDiff: true
+                            });
+                        }
+                    }
+                });
             }
 
             setLines(newLines);
@@ -233,7 +288,7 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [gapNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides, showAllArrows, showBackdroppedArrows]);
+    }, [gapNodes, diffNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides, showAllArrows, showBackdroppedArrows]);
 
     // Get unique values to create markers for
     const uniqueValues = useMemo(() => {
@@ -744,6 +799,287 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
     );
 });
 
+// Diff utility functions
+const computeCharDiff = (oldStr, newStr) => {
+    const old = String(oldStr ?? '');
+    const new_ = String(newStr ?? '');
+
+    if (old === new_) return { prefix: old, oldMiddle: '', newMiddle: '', suffix: '' };
+
+    // Find common prefix
+    let prefixLen = 0;
+    while (prefixLen < old.length && prefixLen < new_.length && old[prefixLen] === new_[prefixLen]) {
+        prefixLen++;
+    }
+
+    // Find common suffix (not overlapping with prefix)
+    let suffixLen = 0;
+    while (
+        suffixLen < old.length - prefixLen &&
+        suffixLen < new_.length - prefixLen &&
+        old[old.length - 1 - suffixLen] === new_[new_.length - 1 - suffixLen]
+    ) {
+        suffixLen++;
+    }
+
+    return {
+        prefix: old.slice(0, prefixLen),
+        oldMiddle: old.slice(prefixLen, old.length - suffixLen),
+        newMiddle: new_.slice(prefixLen, new_.length - suffixLen),
+        suffix: old.slice(old.length - suffixLen)
+    };
+};
+
+const computeDocDiff = (obj1, obj2, path = '') => {
+    const diffs = [];
+    const allKeys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})]);
+
+    for (const key of allKeys) {
+        const val1 = obj1?.[key];
+        const val2 = obj2?.[key];
+        const fullPath = path ? `${path}.${key}` : key;
+
+        const hasKey1 = obj1 && key in obj1;
+        const hasKey2 = obj2 && key in obj2;
+
+        if (!hasKey1) {
+            diffs.push({ path: fullPath, type: 'added', value: val2 });
+        } else if (!hasKey2) {
+            diffs.push({ path: fullPath, type: 'removed', value: val1 });
+        } else if (val1 !== null && val2 !== null && typeof val1 === 'object' && typeof val2 === 'object' && !Array.isArray(val1) && !Array.isArray(val2)) {
+            // Both are objects - recurse
+            diffs.push(...computeDocDiff(val1, val2, fullPath));
+        } else if (Array.isArray(val1) && Array.isArray(val2)) {
+            // Compare arrays element by element
+            const maxLen = Math.max(val1.length, val2.length);
+            for (let i = 0; i < maxLen; i++) {
+                const elemPath = `${fullPath}[${i}]`;
+                if (i >= val1.length) {
+                    diffs.push({ path: elemPath, type: 'added', value: val2[i] });
+                } else if (i >= val2.length) {
+                    diffs.push({ path: elemPath, type: 'removed', value: val1[i] });
+                } else if (typeof val1[i] === 'object' && typeof val2[i] === 'object' && val1[i] !== null && val2[i] !== null) {
+                    diffs.push(...computeDocDiff(val1[i], val2[i], elemPath));
+                } else if (val1[i] !== val2[i]) {
+                    diffs.push({ path: elemPath, type: 'changed', oldValue: val1[i], newValue: val2[i] });
+                }
+            }
+        } else if (val1 !== val2) {
+            diffs.push({ path: fullPath, type: 'changed', oldValue: val1, newValue: val2 });
+        }
+    }
+    return diffs;
+};
+
+// Renders a value with character-level diff highlighting
+const DiffValue = ({ value, type, oldValue, newValue }) => {
+    const formatValue = (val) => {
+        if (val === null) return 'null';
+        if (val === undefined) return 'undefined';
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+    };
+
+    if (type === 'added') {
+        return (
+            <span style={{ background: 'rgba(74, 222, 128, 0.3)', color: '#4ade80', padding: '1px 4px', borderRadius: '2px' }}>
+                {formatValue(value)}
+            </span>
+        );
+    }
+
+    if (type === 'removed') {
+        return (
+            <span style={{ background: 'rgba(248, 113, 113, 0.3)', color: '#f87171', padding: '1px 4px', borderRadius: '2px', textDecoration: 'line-through' }}>
+                {formatValue(value)}
+            </span>
+        );
+    }
+
+    if (type === 'changed') {
+        const oldFormatted = formatValue(oldValue);
+        const newFormatted = formatValue(newValue);
+
+        // Use character-level diff for strings
+        if (typeof oldValue === 'string' && typeof newValue === 'string') {
+            const { prefix, oldMiddle, newMiddle, suffix } = computeCharDiff(oldValue, newValue);
+            return (
+                <span>
+                    <span style={{ color: '#94a3b8' }}>{prefix}</span>
+                    {oldMiddle && <span style={{ background: '#f87171', color: '#0f172a', padding: '0 2px', borderRadius: '2px' }}>{oldMiddle}</span>}
+                    {newMiddle && <span style={{ background: '#4ade80', color: '#0f172a', padding: '0 2px', borderRadius: '2px' }}>{newMiddle}</span>}
+                    <span style={{ color: '#94a3b8' }}>{suffix}</span>
+                </span>
+            );
+        }
+
+        // For non-strings, show old → new
+        return (
+            <span>
+                <span style={{ background: 'rgba(248, 113, 113, 0.3)', color: '#f87171', padding: '1px 4px', borderRadius: '2px', textDecoration: 'line-through' }}>
+                    {oldFormatted}
+                </span>
+                <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
+                <span style={{ background: 'rgba(74, 222, 128, 0.3)', color: '#4ade80', padding: '1px 4px', borderRadius: '2px' }}>
+                    {newFormatted}
+                </span>
+            </span>
+        );
+    }
+
+    return <span style={{ color: '#94a3b8' }}>{formatValue(value)}</span>;
+};
+
+const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, isSelected, onMouseDown, registerRef, onContextMenu }) => {
+    const nodeRef = useRef(null);
+    const currentX = node.x;
+    const currentY = node.y;
+
+    const deleteHandler = useDragAwareClick((e) => { e.stopPropagation(); onDelete(node.id); });
+
+    useEffect(() => {
+        if (registerRef) {
+            registerRef(node.id, nodeRef.current);
+            return () => registerRef(node.id, null);
+        }
+    }, [node.id, registerRef]);
+
+    // Compute diff
+    const diffs = useMemo(() => {
+        if (!sourceDoc || !targetDoc) return [];
+        return computeDocDiff(sourceDoc.data, targetDoc.data);
+    }, [sourceDoc, targetDoc]);
+
+    const getShortId = (id) => {
+        if (!id) return '?';
+        const str = String(id);
+        return str.length > 8 ? str.slice(0, 4) + '…' + str.slice(-4) : str;
+    };
+
+    return (
+        <div
+            ref={nodeRef}
+            onContextMenu={(e) => onContextMenu && onContextMenu(e, node.id)}
+            onMouseDown={(e) => {
+                e.stopPropagation();
+                onMouseDown(e, node.id);
+            }}
+            style={{
+                position: 'absolute',
+                left: currentX,
+                top: currentY,
+                transform: 'translate(-50%, -50%)',
+                background: '#1e293b',
+                border: isSelected ? '2px solid var(--primary)' : '1px solid var(--glass-border)',
+                borderRadius: '8px',
+                padding: '0',
+                minWidth: '320px',
+                maxWidth: '500px',
+                maxHeight: '400px',
+                cursor: 'grab',
+                zIndex: isSelected ? 2001 : 100,
+                boxShadow: isSelected ? '0 0 0 3px var(--primary), 0 8px 16px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.3)',
+                userSelect: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                transition: 'box-shadow 0.2s, border 0.2s, opacity 0.2s, filter 0.2s',
+                opacity: node.dimmed ? 0.3 : 1,
+                filter: node.dimmed ? 'blur(1px) grayscale(50%)' : 'none',
+                overflow: 'hidden'
+            }}
+        >
+            {/* Header */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                background: 'rgba(0,0,0,0.2)',
+                borderBottom: '1px solid var(--glass-border)',
+                gap: '8px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden' }}>
+                    <span style={{ color: '#f87171' }}>{getShortId(sourceDoc?.data?._id)}</span>
+                    <span>↔</span>
+                    <span style={{ color: '#4ade80' }}>{getShortId(targetDoc?.data?._id)}</span>
+                </div>
+                <button
+                    onMouseDown={deleteHandler.onMouseDown}
+                    onClick={deleteHandler.onClick}
+                    style={{
+                        background: 'rgba(0,0,0,0.2)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '20px',
+                        height: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: '#94a3b8',
+                        fontSize: '0.75rem',
+                        padding: 0,
+                        flexShrink: 0
+                    }}
+                >
+                    ✕
+                </button>
+            </div>
+
+            {/* Content */}
+            <div style={{
+                padding: '8px 12px',
+                overflowY: 'auto',
+                maxHeight: '340px',
+                fontSize: '0.85rem'
+            }}>
+                {!sourceDoc || !targetDoc ? (
+                    <div style={{ color: '#f87171', fontStyle: 'italic' }}>
+                        Document not found
+                    </div>
+                ) : diffs.length === 0 ? (
+                    <div style={{ color: '#4ade80', fontStyle: 'italic' }}>
+                        No differences
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {diffs.map((diff, idx) => (
+                            <div key={idx} style={{
+                                display: 'flex',
+                                gap: '8px',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                background: diff.type === 'added' ? 'rgba(74, 222, 128, 0.1)' :
+                                           diff.type === 'removed' ? 'rgba(248, 113, 113, 0.1)' :
+                                           'rgba(148, 163, 184, 0.1)'
+                            }}>
+                                <span style={{
+                                    color: diff.type === 'added' ? '#4ade80' :
+                                           diff.type === 'removed' ? '#f87171' :
+                                           '#94a3b8',
+                                    fontWeight: 500,
+                                    minWidth: '30%',
+                                    wordBreak: 'break-word'
+                                }}>
+                                    {diff.path}:
+                                </span>
+                                <span style={{ wordBreak: 'break-word', flex: 1 }}>
+                                    <DiffValue
+                                        type={diff.type}
+                                        value={diff.value}
+                                        oldValue={diff.oldValue}
+                                        newValue={diff.newValue}
+                                    />
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+});
+
 const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpdateText, isSelected, onMouseDown, registerRef, onContextMenu }) => {
     const nodeRef = useRef(null);
     const [isEditing, setIsEditing] = useState(false);
@@ -1151,6 +1487,10 @@ const Canvas = ({
     onUpdateImageNode,
     onUpdateImageNodePosition,
     onDeleteImageNode,
+    diffNodes = [],
+    onAddDiffNode,
+    onUpdateDiffNodePosition,
+    onDeleteDiffNode,
     onToggleExpand,
     markedSources = new Set(),
     onMarkedSourcesChange,
@@ -1198,6 +1538,9 @@ const Canvas = ({
 
     // Backdrop toggle mode state
     const [backdropToggleMode, setBackdropToggleMode] = useState(false);
+
+    // Diff selection state - for "Compare with..." feature
+    const [diffSelection, setDiffSelection] = useState(null); // { docId }
     const [canvasContextMenu, setCanvasContextMenu] = useState(null); // { x, y } for canvas right-click menu
     const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, docId } for document right-click menu
     const [backdropMouseDown, setBackdropMouseDown] = useState(false); // Track if mouse is held down in backdrop mode
@@ -1661,6 +2004,34 @@ const Canvas = ({
         // e is React synthetic event, but we need native for performance
         if (e.button !== 0) return; // Left click only
 
+        // Handle diff selection mode - create diff node when second document is clicked
+        if (diffSelection && diffSelection.docId !== id) {
+            // Check if both are documents (not gap/text/image nodes)
+            const sourceDoc = documents.find(d => d._id === diffSelection.docId);
+            const targetDoc = documents.find(d => d._id === id);
+
+            if (sourceDoc && targetDoc) {
+                // Calculate position between the two documents
+                const midX = (sourceDoc.x + targetDoc.x) / 2;
+                const midY = Math.min(sourceDoc.y, targetDoc.y) - 50;
+
+                onAddDiffNode({
+                    id: `diff-${Date.now()}`,
+                    x: midX,
+                    y: midY,
+                    sourceDocId: diffSelection.docId,
+                    targetDocId: id,
+                    dimmed: false
+                });
+
+                setDiffSelection(null);
+                return;
+            } else {
+                // One of them is not a document, cancel diff selection
+                setDiffSelection(null);
+            }
+        }
+
         let newSelection = [...selectedIdsRef.current];
 
         if (e.shiftKey) {
@@ -1711,11 +2082,18 @@ const Canvas = ({
                         modelX = textNode.x;
                         modelY = textNode.y;
                     } else {
-                        // Document?
-                        const doc = documents.find(d => d._id === selId);
-                        if (doc) {
-                            modelX = doc.x;
-                            modelY = doc.y;
+                        // Diff Node?
+                        const diffNode = diffNodes.find(n => n.id === selId);
+                        if (diffNode) {
+                            modelX = diffNode.x;
+                            modelY = diffNode.y;
+                        } else {
+                            // Document?
+                            const doc = documents.find(d => d._id === selId);
+                            if (doc) {
+                                modelX = doc.x;
+                                modelY = doc.y;
+                            }
                         }
                     }
                 }
@@ -2019,6 +2397,28 @@ const Canvas = ({
                             />
                         ))}
 
+                        {/* Diff Nodes */}
+                        {diffNodes.map(node => (
+                            <DraggableDiffNode
+                                key={node.id}
+                                node={node}
+                                sourceDoc={docMap.get(node.sourceDocId)}
+                                targetDoc={docMap.get(node.targetDocId)}
+                                zoom={zoom}
+                                onDelete={onDeleteDiffNode}
+                                isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
+                                onMouseDown={handleCardMouseDown}
+                                onContextMenu={handleNodeContextMenu}
+                                registerRef={(id, el) => {
+                                    if (el) {
+                                        cardRefs.current.set(id, el);
+                                    } else {
+                                        cardRefs.current.delete(id);
+                                    }
+                                }}
+                            />
+                        ))}
+
                         {pendingCustomCard && (
                             <div style={{
                                 position: 'absolute',
@@ -2104,6 +2504,7 @@ const Canvas = ({
             {/* Connection Lines Layer */}
             <ConnectionLayer
                 gapNodes={gapNodes}
+                diffNodes={diffNodes}
                 arrowDirection={arrowDirection}
                 nodeRegistry={nodeRegistry}
                 zoom={zoom}
@@ -2133,6 +2534,42 @@ const Canvas = ({
                     boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                 }}>
                     Start Date
+                </div>
+            )}
+
+            {/* Diff Selection Mode Indicator */}
+            {diffSelection && (
+                <div style={{
+                    position: 'fixed',
+                    top: '20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'var(--primary)',
+                    color: 'white',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    zIndex: 2000,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <span>Click another document to compare</span>
+                    <button
+                        onClick={() => setDiffSelection(null)}
+                        style={{
+                            background: 'rgba(0,0,0,0.2)',
+                            border: 'none',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.8rem'
+                        }}
+                    >
+                        Cancel
+                    </button>
                 </div>
             )}
 
@@ -2382,6 +2819,31 @@ const Canvas = ({
                     >
                         <span style={{ marginRight: '8px' }}>⎘</span>
                         Clone {selectedIds.length > 1 ? `(${selectedIds.length})` : ''}
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setDiffSelection({ docId: cardContextMenu.docId });
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <span style={{ marginRight: '8px' }}>⇔</span>
+                        Compare with...
                     </button>
                     <div style={{ height: '1px', background: 'var(--glass-border)', margin: '4px 0' }} />
                     <button

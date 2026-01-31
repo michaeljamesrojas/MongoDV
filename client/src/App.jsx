@@ -32,6 +32,7 @@ function App() {
   const [gapNodes, setGapNodes] = useState([]);
   const [textNodes, setTextNodes] = useState([]); // Array of { id, x, y, text, width, height, dimmed }
   const [imageNodes, setImageNodes] = useState([]); // Array of { id, x, y, src, width, height, dimmed, originalSize, compressedSize }
+  const [diffNodes, setDiffNodes] = useState([]); // Array of { id, x, y, sourceDocId, targetDocId, dimmed }
   const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
   const [markedSources, setMarkedSources] = useState(new Set()); // Set<"collection:path">
   const [highlightedFields, setHighlightedFields] = useState(new Set()); // Set<"collection:path">
@@ -57,6 +58,7 @@ function App() {
       gapNodes: gapNodes,
       textNodes: textNodes,
       imageNodes: imageNodes,
+      diffNodes: diffNodes,
       markedSources: new Set(markedSources), // Copy Set
       highlightedFields: new Set(highlightedFields), // Copy Set
       hoistedFields: new Set(hoistedFields), // Copy Set
@@ -67,7 +69,7 @@ function App() {
       // Optional view state (included for File Saves, excluded for Undo/Redo)
       view: includeView ? canvasView : undefined
     };
-  }, [canvasDocuments, gapNodes, textNodes, imageNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
+  }, [canvasDocuments, gapNodes, textNodes, imageNodes, diffNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
 
   // Helper: Restore state from a snapshot
   const restoreCanvasSnapshot = useCallback((snapshot, includeView = false) => {
@@ -78,6 +80,7 @@ function App() {
     if (snapshot.gapNodes) setGapNodes(snapshot.gapNodes);
     if (snapshot.textNodes) setTextNodes(snapshot.textNodes);
     if (snapshot.imageNodes) setImageNodes(snapshot.imageNodes);
+    if (snapshot.diffNodes) setDiffNodes(snapshot.diffNodes);
 
     // Sets need to be restored as Sets
     if (snapshot.markedSources) setMarkedSources(snapshot.markedSources instanceof Set ? snapshot.markedSources : new Set(snapshot.markedSources));
@@ -403,6 +406,25 @@ function App() {
     });
   }, [saveHistoryPoint]);
 
+  // Diff Node Handlers
+  const handleAddDiffNode = useCallback((newNode) => {
+    saveHistoryPoint();
+    setDiffNodes(prev => [...prev, newNode]);
+  }, [saveHistoryPoint]);
+
+  const handleUpdateDiffNodePosition = useCallback((id, x, y) => {
+    const node = diffNodes.find(n => n.id === id);
+    if (node && Math.abs(node.x - x) < 1 && Math.abs(node.y - y) < 1) return;
+
+    saveHistoryPoint();
+    setDiffNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
+  }, [diffNodes, saveHistoryPoint]);
+
+  const handleDeleteDiffNode = useCallback((id) => {
+    saveHistoryPoint();
+    setDiffNodes(prev => prev.filter(n => n.id !== id));
+  }, [saveHistoryPoint]);
+
   const handleUpdateCanvasPosition = useCallback((id, x, y) => {
     const doc = canvasDocuments.find(d => d._id === id);
     if (doc && Math.abs(doc.x - x) < 1 && Math.abs(doc.y - y) < 1) return;
@@ -479,6 +501,15 @@ function App() {
           break;
         }
       }
+
+      // Check diff nodes
+      const diffNode = diffNodes.find(n => n.id === id);
+      if (diffNode) {
+        if (Math.abs(diffNode.x - x) > 1 || Math.abs(diffNode.y - y) > 1) {
+          hasChange = true;
+          break;
+        }
+      }
     }
 
     if (!hasChange) return;
@@ -509,7 +540,13 @@ function App() {
       }
       return n;
     }));
-  }, [canvasDocuments, gapNodes, textNodes, imageNodes, saveHistoryPoint]);
+    setDiffNodes(prev => prev.map(n => {
+      if (updates[n.id]) {
+        return { ...n, x: updates[n.id].x, y: updates[n.id].y };
+      }
+      return n;
+    }));
+  }, [canvasDocuments, gapNodes, textNodes, imageNodes, diffNodes, saveHistoryPoint]);
 
   const handleCloneCanvasDocument = (id) => {
     saveHistoryPoint();
@@ -566,6 +603,19 @@ function App() {
         y: imageNodeToClone.y + 20,
       };
       setImageNodes(prev => [...prev, newImageNode]);
+      return;
+    }
+
+    // 5. Try Diff Node
+    const diffNodeToClone = diffNodes.find(n => n.id === id);
+    if (diffNodeToClone) {
+      const newDiffNode = {
+        ...diffNodeToClone,
+        id: `diff-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        x: diffNodeToClone.x + 20,
+        y: diffNodeToClone.y + 20,
+      };
+      setDiffNodes(prev => [...prev, newDiffNode]);
     }
   };
 
@@ -581,6 +631,7 @@ function App() {
     setGapNodes(prev => prev.filter(n => !idsSet.has(n.id)));
     setTextNodes(prev => prev.filter(n => !idsSet.has(n.id)));
     setImageNodes(prev => prev.filter(n => !idsSet.has(n.id)));
+    setDiffNodes(prev => prev.filter(n => !idsSet.has(n.id)));
   };
 
 
@@ -647,7 +698,22 @@ function App() {
     if (textFound) return;
 
     // 4. Try Image Node
+    let imageFound = false;
     setImageNodes(prev => {
+      const idx = prev.findIndex(n => n.id === docId);
+      if (idx !== -1) {
+        imageFound = true;
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
+      }
+      return prev;
+    });
+
+    if (imageFound) return;
+
+    // 5. Try Diff Node
+    setDiffNodes(prev => {
       const idx = prev.findIndex(n => n.id === docId);
       if (idx !== -1) {
         const newArr = [...prev];
@@ -1298,6 +1364,10 @@ function App() {
                 onUpdateImageNode={handleUpdateImageNode}
                 onUpdateImageNodePosition={handleUpdateImageNodePosition}
                 onDeleteImageNode={handleDeleteImageNode}
+                diffNodes={diffNodes}
+                onAddDiffNode={handleAddDiffNode}
+                onUpdateDiffNodePosition={handleUpdateDiffNodePosition}
+                onDeleteDiffNode={handleDeleteDiffNode}
                 onConnect={handleConnectRequest}
                 onQuickConnect={handleQuickConnect}
                 connectionHistoryVersion={connectionHistoryVersion}
