@@ -31,7 +31,7 @@ const getDateFromStableId = (docMap, stableId) => {
 };
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true }) => {
+const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pan, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
     // Track dimmed document IDs for line dimming
     const dimmedDocIds = useMemo(() => {
         const set = new Set();
@@ -159,8 +159,19 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                         if (sourceRect.width > 0) {
                             const sourcePos = getCanvasCoords(sourceRect, 'right');
 
-                            const gapScreenX = node.x * zoom + pan.x;
-                            const gapScreenY = node.y * zoom + pan.y;
+                            // Calculate Gap Node Position (Prefer live DOM if available for smooth drag)
+                            let gapScreenX, gapScreenY;
+                            const gapEl = cardRefs?.current?.get(node.id);
+                            if (gapEl) {
+                                const rect = gapEl.getBoundingClientRect();
+                                const centerX = rect.left - canvasRect.left + rect.width / 2;
+                                const centerY = rect.top - canvasRect.top + rect.height / 2;
+                                gapScreenX = centerX;
+                                gapScreenY = centerY;
+                            } else {
+                                gapScreenX = node.x * zoom + pan.x;
+                                gapScreenY = node.y * zoom + pan.y;
+                            }
 
                             newLines.push({
                                 id: `${node.id}-source`,
@@ -180,8 +191,19 @@ const ConnectionLayer = memo(({ gapNodes, arrowDirection, nodeRegistry, zoom, pa
                         if (targetRect.width > 0) {
                             const targetPos = getCanvasCoords(targetRect, 'left');
 
-                            const gapScreenX = node.x * zoom + pan.x;
-                            const gapScreenY = node.y * zoom + pan.y;
+                            // Calculate Gap Node Position (Repetitive but efficient enough for now, or hoist above)
+                            let gapScreenX, gapScreenY;
+                            const gapEl = cardRefs?.current?.get(node.id);
+                            if (gapEl) {
+                                const rect = gapEl.getBoundingClientRect();
+                                const centerX = rect.left - canvasRect.left + rect.width / 2;
+                                const centerY = rect.top - canvasRect.top + rect.height / 2;
+                                gapScreenX = centerX;
+                                gapScreenY = centerY;
+                            } else {
+                                gapScreenX = node.x * zoom + pan.x;
+                                gapScreenY = node.y * zoom + pan.y;
+                            }
 
                             newLines.push({
                                 id: `${node.id}-target`,
@@ -281,7 +303,17 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState('');
 
-    // Set initial width and handle resizing
+    // Register this card's ref for box selection and dragging
+    useEffect(() => {
+        if (cardRef.current && registerRef) {
+            registerRef(doc._id, cardRef.current);
+        }
+        return () => {
+            if (registerRef) {
+                registerRef(doc._id, null);
+            }
+        };
+    }, [doc._id, registerRef]);
     useEffect(() => {
         if (!cardRef.current) return;
 
@@ -356,22 +388,8 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
         };
     }, [doc._id, onUpdateDimensions, doc.width, doc.height]);
 
-    // Register this card's ref for box selection
-    useEffect(() => {
-        if (cardRef.current && registerRef) {
-            registerRef(doc._id, cardRef.current);
-        }
-        return () => {
-            if (registerRef) {
-                registerRef(doc._id, null);
-            }
-        };
-    }, [doc._id, registerRef]);
-
-    // If dragging this card (or it's part of selection), apply offset
-    // The parent calculates position + offset
-    const currentX = doc.x + (isSelected && dragOffset ? dragOffset.x : 0);
-    const currentY = doc.y + (isSelected && dragOffset ? dragOffset.y : 0);
+    const currentX = doc.x;
+    const currentY = doc.y;
 
     // Determine if this card is dimmed
     const isDimmed = doc.dimmed === true;
@@ -387,13 +405,13 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                 top: currentY,
                 zIndex: isSelected ? 100 : 10,
                 boxShadow: isSelected ? '0 0 0 2px var(--primary), 0 10px 25px rgba(0,0,0,0.5)' : '0 4px 6px rgba(0,0,0,0.1)',
-                transition: dragOffset ? 'none' : 'box-shadow 0.2s, top 0.1s, left 0.1s, opacity 0.2s, filter 0.2s', // Smooth snap back if needed, but instant during drag
+                transition: 'box-shadow 0.2s, opacity 0.2s, filter 0.2s', // Removed top/left transition for instant drag response
                 background: 'var(--panel-bg)',
                 borderRadius: '8px',
                 border: '1px solid var(--glass-border)',
                 padding: '1rem',
                 resize: 'both',
-                overflow: 'hidden', // Changed from auto to hidden to better handle resize interactions
+                overflow: 'hidden',
                 minWidth: '200px',
                 minHeight: '100px',
                 display: 'flex',
@@ -432,7 +450,9 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'flex-start',
-                    cursor: dragOffset ? 'grabbing' : 'grab',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    cursor: 'grab',
                     userSelect: 'none',
                     flexShrink: 0
                 }}
@@ -623,11 +643,11 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onFlagClick, onClone, 
     );
 });
 
-const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, isSelected, onMouseDown, registerRef, dragOffset }) => {
+const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, isSelected, onMouseDown, registerRef }) => {
     const nodeRef = useRef(null);
 
-    const currentX = node.x + (isSelected && dragOffset ? dragOffset.x : 0);
-    const currentY = node.y + (isSelected && dragOffset ? dragOffset.y : 0);
+    const currentX = node.x;
+    const currentY = node.y;
 
     useEffect(() => {
         if (registerRef) {
@@ -636,40 +656,13 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
         }
     }, [node.id, registerRef]);
 
-    const handleMouseDown = (e) => {
-        if (onMouseDown) {
-            onMouseDown(e, node.id);
-            return;
-        }
-
-        // Fallback for standalone dragging if parent logic not provided (not expected here)
-        e.stopPropagation();
-        if (e.button !== 0) return;
-        // ... (rest of old standalone drag logic - but we'll use Canvas's group drag)
-    };
-
-    const handleMouseMove = (e) => {
-        const dx = (e.clientX - dragStart.current.x) / zoom;
-        const dy = (e.clientY - dragStart.current.y) / zoom;
-        onUpdatePosition(node.id, nodeStart.current.x + dx, nodeStart.current.y + dy);
-    };
-
-    const handleMouseUp = (e) => {
-        setIsDragging(false);
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-
-        // Final update
-        const dx = (e.clientX - dragStart.current.x) / zoom;
-        const dy = (e.clientY - dragStart.current.y) / zoom;
-        onUpdatePosition(node.id, nodeStart.current.x + dx, nodeStart.current.y + dy);
-    };
-
     return (
         <div
             ref={nodeRef}
-            onMouseDown={handleMouseDown}
+            onMouseDown={(e) => {
+                e.stopPropagation();
+                onMouseDown(e, node.id);
+            }}
             style={{
                 position: 'absolute',
                 left: currentX,
@@ -762,7 +755,16 @@ const Canvas = ({
     const [isPanning, setIsPanning] = useState(false);
     const canvasRef = useRef(null);
     const [selectedIds, setSelectedIds] = useState([]);
-    const [dragState, setDragState] = useState(null); // { startX, startY, currentX, currentY }
+
+    // DRAG REFACTOR: Refs for high-performance dragging without re-renders
+    const selectedIdsRef = useRef([]); // Keep in sync with selectedIds state
+    const dragStateRef = useRef(null); // { startX, startY, [id]: { initialX, initialY, element, originalZIndex } }
+
+    // Sync state to ref
+    useEffect(() => {
+        selectedIdsRef.current = selectedIds;
+    }, [selectedIds]);
+
     const [boxSelectState, setBoxSelectState] = useState(null); // { startX, startY, currentX, currentY } in screen coords
     const [boxSelectPreviewIds, setBoxSelectPreviewIds] = useState([]); // IDs currently under box selection
     const boxSelectPreviewRef = useRef([]); // Ref to track latest preview for mouseup handler
@@ -1117,6 +1119,15 @@ const Canvas = ({
         document.removeEventListener('mouseup', handlePanUp);
     };
 
+    // Helper: Find gaps for a document
+    const findLinkedGaps = (docId) => {
+        // Simple heuristic: if a gap node uses this docId as source or target
+        // But actually gap nodes have stable IDs as source/target, not just docIds. 
+        // We'll rely on the user selecting them or moving them manually for now as requested.
+        // OR we just iterate all gap nodes and check if they are selected.
+        return [];
+    };
+
     // ----- Box Selection Logic -----
     const handleBoxSelectMove = (e) => {
         const currentX = e.clientX;
@@ -1169,10 +1180,14 @@ const Canvas = ({
 
     // ----- Card Drag & Selection Logic -----
 
+
+    // ----- Card Drag & Selection Logic (Refactored) -----
+
     const handleCardMouseDown = (e, id) => {
+        // e is React synthetic event, but we need native for performance
         if (e.button !== 0) return; // Left click only
 
-        let newSelection = [...selectedIds];
+        let newSelection = [...selectedIdsRef.current];
 
         if (e.shiftKey) {
             if (newSelection.includes(id)) {
@@ -1181,97 +1196,133 @@ const Canvas = ({
                 newSelection.push(id);
             }
         } else {
+            // If dragging something NOT in current selection, select ONLY that thing.
             if (!newSelection.includes(id)) {
                 newSelection = [id];
             }
-            // If already selected, keep selection (to allow dragging multiple)
+            // else: dragging something ALREADY selected -> keep selection as is so we can drag the group
         }
 
+        // Optimistically update selection state for UI
         setSelectedIds(newSelection);
+        selectedIdsRef.current = newSelection; // Sync ref immediately for drag logic
 
-        // Init Drag
-        setDragState({
+        // Initialize Drag State
+        const dragInfo = {
             startX: e.clientX,
             startY: e.clientY,
-            currentX: e.clientX,
-            currentY: e.clientY
+            targets: {}
+        };
+
+        const zoom = viewStateRef.current.zoom;
+
+        // Prepare targets
+        newSelection.forEach(selId => {
+            const el = cardRefs.current.get(selId);
+            if (el) {
+                // Find initial object pos (logic from render phase)
+                // We need to know the Model Position (x,y) to calculate delta
+                // We can fetch it from documents or gapNodes
+                let modelX = 0, modelY = 0;
+
+                // Gap Node?
+                const gap = gapNodes.find(n => n.id === selId);
+                if (gap) {
+                    modelX = gap.x;
+                    modelY = gap.y;
+                } else {
+                    // Document?
+                    const doc = documents.find(d => d._id === selId);
+                    if (doc) {
+                        modelX = doc.x;
+                        modelY = doc.y;
+                    }
+                }
+
+                // Make sure we have a reference to the initial transform or style
+                // We will use transform translate to move them visually
+                el.style.transition = 'none'; // Disable transition during drag
+                const originalZIndex = el.style.zIndex;
+                el.style.zIndex = 1000; // Bring to front
+
+                dragInfo.targets[selId] = {
+                    el,
+                    modelX,
+                    modelY,
+                    originalZIndex
+                };
+            }
         });
 
+        dragStateRef.current = dragInfo;
+
         document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'grabbing';
         document.addEventListener('mousemove', handleCardMouseMove);
         document.addEventListener('mouseup', handleCardMouseUp);
     };
 
     const handleCardMouseMove = (e) => {
-        setDragState(prev => ({
-            ...prev,
-            currentX: e.clientX,
-            currentY: e.clientY
-        }));
-    };
+        if (!dragStateRef.current) return;
 
-    const handleCardMouseUp = (e) => {
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', handleCardMouseMove);
-        document.removeEventListener('mouseup', handleCardMouseUp);
+        const { startX, startY, targets } = dragStateRef.current;
+        const zoom = viewStateRef.current.zoom;
 
-        // Commit positions
-        setDragState(prev => {
-            if (!prev) return null;
+        const dx = (e.clientX - startX) / zoom;
+        const dy = (e.clientY - startY) / zoom;
 
-            const dx = (e.clientX - prev.startX) / zoom;
-            const dy = (e.clientY - prev.startY) / zoom;
-
-            if (dx === 0 && dy === 0) {
-                // Was just a click, not a drag.
-                // If we didn't use shift, and clicked on a selected item, we might want to isolate it now?
-                // Standard behavior: if I have A and B selected, and I click A (without drag), A becomes sole selection.
-                // But we handled 'mouse down'. If we do it here it feels cleaner.
-                // Let's leave as is for now: click on selection preserves selection.
-            } else {
-                // Update all selected
-                const updates = {};
-                selectedIds.forEach(id => {
-                    // Check if it's a document
-                    const doc = documents.find(d => d._id === id);
-                    if (doc) {
-                        updates[id] = {
-                            x: doc.x + dx,
-                            y: doc.y + dy
-                        };
-                    } else {
-                        // Check if it's a gap node
-                        const gap = gapNodes.find(n => n.id === id);
-                        if (gap) {
-                            updates[id] = {
-                                x: gap.x + dx,
-                                y: gap.y + dy
-                            };
-                        }
-                    }
-                });
-                if (onUpdatePositions) {
-                    onUpdatePositions(updates);
-                } else {
-                    // Fallback loop
-                    Object.entries(updates).forEach(([id, pos]) => {
-                        if (id.startsWith('gap-')) {
-                            onUpdateGapNodePosition && onUpdateGapNodePosition(id, pos.x, pos.y);
-                        } else {
-                            onUpdatePosition && onUpdatePosition(id, pos.x, pos.y);
-                        }
-                    });
-                }
-            }
-            return null;
+        // Apply visual transform to all targets
+        Object.values(targets).forEach(({ el }) => {
+            el.style.transform = `translate(${dx}px, ${dy}px)`;
         });
     };
 
+    const handleCardMouseUp = (e) => {
+        if (!dragStateRef.current) return;
+
+        const { startX, startY, targets } = dragStateRef.current;
+        const zoom = viewStateRef.current.zoom;
+
+        const dx = (e.clientX - startX) / zoom;
+        const dy = (e.clientY - startY) / zoom;
+
+        // Cleanup DOM overrides
+        Object.values(targets).forEach(({ el, originalZIndex }) => {
+            el.style.transform = ''; // Remove temp transform
+            el.style.transition = ''; // Restore transitions
+            el.style.zIndex = '';
+        });
+
+        // 2. Commit final positions
+        if (dx !== 0 || dy !== 0) {
+            const updates = {};
+            Object.keys(targets).forEach(id => {
+                const target = targets[id];
+                updates[id] = {
+                    x: target.modelX + dx,
+                    y: target.modelY + dy
+                };
+            });
+
+            if (onUpdatePositions) {
+                onUpdatePositions(updates);
+            }
+        } else {
+            // Was a click, not a drag. 
+            // Logic for simple click on card already handled by mousedown mostly, 
+            // but if we need "selection clearing" logic on simple click it goes here.
+            // (Not needed for now as mousedown handles selection logic nicely).
+        }
+
+        dragStateRef.current = null;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        document.removeEventListener('mousemove', handleCardMouseMove);
+        document.removeEventListener('mouseup', handleCardMouseUp);
+    };
+
     // Calculate drag offset for rendering
-    const dragOffset = dragState ? {
-        x: (dragState.currentX - dragState.startX) / zoom,
-        y: (dragState.currentY - dragState.startY) / zoom
-    } : null;
+
 
     return (
         <div ref={canvasRef} style={{
@@ -1371,8 +1422,7 @@ const Canvas = ({
 
                         {documents.map(doc => {
                             const isSelected = selectedIds.includes(doc._id);
-                            const isSelectedForDrag = isSelected && dragState;
-                            const dragOffset = isSelectedForDrag ? { x: dragState.currentX - dragState.startX, y: dragState.currentY - dragState.startY } : null;
+
 
                             return (
                                 <DraggableCard
@@ -1394,7 +1444,6 @@ const Canvas = ({
                                     onToggleExpand={onToggleExpand}
                                     isSelected={isSelected || boxSelectPreviewIds.includes(doc._id)}
                                     onMouseDown={handleCardMouseDown}
-                                    dragOffset={dragOffset}
                                     registerRef={(id, el) => {
                                         if (el) {
                                             cardRefs.current.set(id, el);
@@ -1446,10 +1495,10 @@ const Canvas = ({
                                     text={liveText}
                                     zoom={zoom}
                                     onUpdatePosition={onUpdateGapNodePosition}
+
                                     onDelete={onDeleteGapNode}
                                     isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
                                     onMouseDown={handleCardMouseDown}
-                                    dragOffset={selectedIds.includes(node.id) ? dragOffset : null}
                                     registerRef={(id, el) => {
                                         if (el) {
                                             cardRefs.current.set(id, el);
@@ -1555,6 +1604,7 @@ const Canvas = ({
                 idColorOverrides={idColorOverrides}
                 showBackdroppedArrows={showBackdroppedArrows}
                 showAllArrows={showAllArrows}
+                cardRefs={cardRefs}
             />
 
             {/* Date Selection Indicators */}
