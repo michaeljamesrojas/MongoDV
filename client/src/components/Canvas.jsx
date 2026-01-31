@@ -736,6 +736,161 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
     );
 });
 
+const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpdateText, isSelected, onMouseDown, registerRef, onContextMenu }) => {
+    const nodeRef = useRef(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [text, setText] = useState(node.text);
+    const [editValue, setEditValue] = useState(node.text);
+    const textareaRef = useRef(null);
+
+    const currentX = node.x;
+    const currentY = node.y;
+
+    const deleteHandler = useDragAwareClick((e) => { e.stopPropagation(); onDelete(node.id); });
+
+    useEffect(() => {
+        setText(node.text);
+        setEditValue(node.text);
+    }, [node.text]);
+
+    useEffect(() => {
+        if (registerRef) {
+            registerRef(node.id, nodeRef.current);
+            return () => registerRef(node.id, null);
+        }
+    }, [node.id, registerRef]);
+
+    useEffect(() => {
+        if (isEditing && textareaRef.current) {
+            textareaRef.current.focus();
+            // Auto-resize
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+        }
+    }, [isEditing, editValue]);
+
+    const handleDoubleClick = (e) => {
+        e.stopPropagation();
+        setIsEditing(true);
+        setEditValue(text);
+    };
+
+    const handleBlur = () => {
+        setIsEditing(false);
+        if (editValue !== node.text) {
+            onUpdateText(node.id, editValue);
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.ctrlKey) {
+                e.target.blur();
+            }
+        }
+        e.stopPropagation();
+    };
+
+    const handleWheel = (e) => {
+        e.stopPropagation();
+    };
+
+    return (
+        <div
+            ref={nodeRef}
+            onContextMenu={(e) => onContextMenu && onContextMenu(e, node.id)}
+            onMouseDown={(e) => {
+                if (isEditing) {
+                    e.stopPropagation();
+                    return;
+                }
+                e.stopPropagation();
+                onMouseDown(e, node.id);
+            }}
+            onDoubleClick={handleDoubleClick}
+            style={{
+                position: 'absolute',
+                left: currentX,
+                top: currentY,
+                transform: 'translate(-50%, -50%)',
+                background: node.dimmed ? 'rgba(30, 41, 59, 0.5)' : '#1e293b',
+                border: isSelected ? '2px solid var(--primary)' : '1px solid var(--glass-border)',
+                color: '#e2e8f0',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                cursor: isEditing ? 'text' : 'grab',
+                zIndex: isSelected ? 2001 : 100,
+                boxShadow: isSelected ? '0 0 0 2px rgba(96, 165, 250, 0.2), 0 8px 16px rgba(0,0,0,0.4)' : '0 4px 6px rgba(0,0,0,0.2)',
+                marginBottom: '8px',
+                userSelect: isEditing ? 'text' : 'none',
+                minWidth: '100px',
+                maxWidth: '400px',
+                display: 'flex',
+                transition: 'box-shadow 0.2s, border 0.2s, opacity 0.2s, filter 0.2s',
+                opacity: node.dimmed ? 0.5 : 1,
+                filter: node.dimmed ? 'blur(0.5px)' : 'none'
+            }}
+        >
+            {isEditing ? (
+                <textarea
+                    ref={textareaRef}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={handleBlur}
+                    onKeyDown={handleKeyDown}
+                    onWheel={handleWheel}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'white',
+                        fontFamily: 'inherit',
+                        fontSize: 'inherit',
+                        resize: 'both',
+                        outline: 'none',
+                        minWidth: '150px',
+                        minHeight: '60px',
+                        overflow: 'auto'
+                    }}
+                />
+            ) : (
+                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {text}
+                </div>
+            )}
+
+            {!isEditing && (
+                <button
+                    onMouseDown={deleteHandler.onMouseDown}
+                    onClick={deleteHandler.onClick}
+                    style={{
+                        position: 'absolute',
+                        top: '-8px',
+                        right: '-8px',
+                        background: '#ef4444',
+                        border: '2px solid #0f172a',
+                        borderRadius: '50%',
+                        width: '20px',
+                        height: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: 'white',
+                        fontSize: '0.7rem',
+                        padding: 0,
+                        opacity: isSelected ? 1 : 0,
+                        transition: 'opacity 0.2s',
+                        pointerEvents: isSelected ? 'auto' : 'none'
+                    }}
+                >
+                    ✕
+                </button>
+            )}
+        </div>
+    );
+});
+
 const Canvas = ({
     documents,
     viewState,
@@ -754,9 +909,14 @@ const Canvas = ({
     onImport,
     currentSaveName,
     gapNodes = [],
+    textNodes = [],
     onUpdateGapNodePosition,
     onAddGapNode,
     onDeleteGapNode,
+    onAddTextNode,
+    onUpdateTextNode,
+    onUpdateTextNodePosition,
+    onDeleteTextNode,
     onToggleExpand,
     markedSources = new Set(),
     onMarkedSourcesChange,
@@ -1284,11 +1444,18 @@ const Canvas = ({
                     modelX = gap.x;
                     modelY = gap.y;
                 } else {
-                    // Document?
-                    const doc = documents.find(d => d._id === selId);
-                    if (doc) {
-                        modelX = doc.x;
-                        modelY = doc.y;
+                    // Text Node?
+                    const textNode = textNodes.find(n => n.id === selId);
+                    if (textNode) {
+                        modelX = textNode.x;
+                        modelY = textNode.y;
+                    } else {
+                        // Document?
+                        const doc = documents.find(d => d._id === selId);
+                        if (doc) {
+                            modelX = doc.x;
+                            modelY = doc.y;
+                        }
                     }
                 }
 
@@ -1546,6 +1713,27 @@ const Canvas = ({
                             );
                         })}
 
+                        {textNodes.map(node => (
+                            <DraggableTextNode
+                                key={node.id}
+                                node={node}
+                                zoom={zoom}
+                                onUpdatePosition={onUpdateTextNodePosition}
+                                onUpdateText={onUpdateTextNode}
+                                onDelete={onDeleteTextNode}
+                                isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
+                                onMouseDown={handleCardMouseDown}
+                                onContextMenu={handleNodeContextMenu}
+                                registerRef={(id, el) => {
+                                    if (el) {
+                                        cardRefs.current.set(id, el);
+                                    } else {
+                                        cardRefs.current.delete(id);
+                                    }
+                                }}
+                            />
+                        ))}
+
                         {pendingCustomCard && (
                             <div style={{
                                 position: 'absolute',
@@ -1712,6 +1900,18 @@ const Canvas = ({
                                         width,
                                         type: 'gap'
                                     };
+                                }),
+                                ...textNodes.filter(n => selectedIds.includes(n.id)).map(n => {
+                                    let width = 150;
+                                    const el = cardRefs.current.get(n.id);
+                                    if (el) width = el.offsetWidth;
+                                    return {
+                                        id: n.id,
+                                        x: n.x,
+                                        y: n.y,
+                                        width,
+                                        type: 'text'
+                                    };
                                 })
                             ];
 
@@ -1783,6 +1983,13 @@ const Canvas = ({
                                     y: n.y,
                                     height: 40, // Estimated height for gap node
                                     type: 'gap'
+                                })),
+                                ...textNodes.filter(n => selectedIds.includes(n.id)).map(n => ({
+                                    id: n.id,
+                                    x: n.x,
+                                    y: n.y,
+                                    height: 40,
+                                    type: 'text'
                                 }))
                             ];
 
@@ -2141,6 +2348,42 @@ const Canvas = ({
                     >
                         📝 Custom Document
                     </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const canvasRect = canvasRef.current.getBoundingClientRect();
+                            const x = (canvasContextMenu.x - canvasRect.left - pan.x) / zoom;
+                            const y = (canvasContextMenu.y - canvasRect.top - pan.y) / zoom;
+
+                            onAddTextNode({
+                                id: `text-${Date.now()}`,
+                                text: 'New Text',
+                                x,
+                                y,
+                                dimmed: false
+                            });
+                            setCanvasContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        📝 Add Text
+                    </button>
+
                 </div>
             )}
 

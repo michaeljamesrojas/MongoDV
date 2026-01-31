@@ -29,6 +29,7 @@ function App() {
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
   const [canvasDocuments, setCanvasDocuments] = useState([]);
   const [gapNodes, setGapNodes] = useState([]);
+  const [textNodes, setTextNodes] = useState([]); // Array of { id, x, y, text, width, height, dimmed }
   const [canvasView, setCanvasView] = useState({ pan: { x: 0, y: 0 }, zoom: 1 });
   const [markedSources, setMarkedSources] = useState(new Set()); // Set<"collection:path">
   const [highlightedFields, setHighlightedFields] = useState(new Set()); // Set<"collection:path">
@@ -52,6 +53,7 @@ function App() {
     return {
       documents: canvasDocuments,
       gapNodes: gapNodes,
+      textNodes: textNodes,
       markedSources: new Set(markedSources), // Copy Set
       highlightedFields: new Set(highlightedFields), // Copy Set
       hoistedFields: new Set(hoistedFields), // Copy Set
@@ -62,7 +64,7 @@ function App() {
       // Optional view state (included for File Saves, excluded for Undo/Redo)
       view: includeView ? canvasView : undefined
     };
-  }, [canvasDocuments, gapNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
+  }, [canvasDocuments, gapNodes, textNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
 
   // Helper: Restore state from a snapshot
   const restoreCanvasSnapshot = useCallback((snapshot, includeView = false) => {
@@ -71,6 +73,7 @@ function App() {
     // Batch updates where possible (React 18 does this auto, but good to be explicit/ordered)
     if (snapshot.documents) setCanvasDocuments(snapshot.documents);
     if (snapshot.gapNodes) setGapNodes(snapshot.gapNodes);
+    if (snapshot.textNodes) setTextNodes(snapshot.textNodes);
 
     // Sets need to be restored as Sets
     if (snapshot.markedSources) setMarkedSources(snapshot.markedSources instanceof Set ? snapshot.markedSources : new Set(snapshot.markedSources));
@@ -321,6 +324,44 @@ function App() {
     setGapNodes(prev => prev.filter(n => n.id !== id));
   }, [saveHistoryPoint]);
 
+  // Text Node Handlers
+  const handleAddTextNode = useCallback((newNode) => {
+    saveHistoryPoint();
+    setTextNodes(prev => [...prev, newNode]);
+  }, [saveHistoryPoint]);
+
+  const handleUpdateTextNode = useCallback((id, text) => {
+    saveHistoryPoint();
+    setTextNodes(prev => prev.map(n => n.id === id ? { ...n, text } : n));
+  }, [saveHistoryPoint]);
+
+  const handleUpdateTextNodePosition = useCallback((id, x, y) => {
+    // Check for change
+    const node = textNodes.find(n => n.id === id);
+    if (node && Math.abs(node.x - x) < 1 && Math.abs(node.y - y) < 1) return;
+
+    saveHistoryPoint();
+    setTextNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
+  }, [textNodes, saveHistoryPoint]);
+
+  const handleDeleteTextNode = useCallback((id) => {
+    saveHistoryPoint();
+    setTextNodes(prev => prev.filter(n => n.id !== id));
+  }, [saveHistoryPoint]);
+
+  const handleToggleTextNodeBackdrop = useCallback((id) => {
+    saveHistoryPoint();
+    setTextNodes(prev => {
+      const idx = prev.findIndex(n => n.id === id);
+      if (idx !== -1) {
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
+      }
+      return prev;
+    });
+  }, [saveHistoryPoint]);
+
   const handleUpdateCanvasPosition = useCallback((id, x, y) => {
     const doc = canvasDocuments.find(d => d._id === id);
     if (doc && Math.abs(doc.x - x) < 1 && Math.abs(doc.y - y) < 1) return;
@@ -379,6 +420,15 @@ function App() {
           break;
         }
       }
+
+      // Check text nodes
+      const textNode = textNodes.find(n => n.id === id);
+      if (textNode) {
+        if (Math.abs(textNode.x - x) > 1 || Math.abs(textNode.y - y) > 1) {
+          hasChange = true;
+          break;
+        }
+      }
     }
 
     if (!hasChange) return;
@@ -397,7 +447,13 @@ function App() {
       }
       return n;
     }));
-  }, [canvasDocuments, gapNodes, saveHistoryPoint]);
+    setTextNodes(prev => prev.map(n => {
+      if (updates[n.id]) {
+        return { ...n, x: updates[n.id].x, y: updates[n.id].y };
+      }
+      return n;
+    }));
+  }, [canvasDocuments, gapNodes, textNodes, saveHistoryPoint]);
 
   const handleCloneCanvasDocument = (id) => {
     saveHistoryPoint();
@@ -428,6 +484,19 @@ function App() {
         // dimmed: false // Reset dimmed state on clone if persisted
       };
       setGapNodes(prev => [...prev, newGap]);
+      return;
+    }
+
+    // 3. Try Text Node
+    const textNodeToClone = textNodes.find(n => n.id === id);
+    if (textNodeToClone) {
+      const newTextNode = {
+        ...textNodeToClone,
+        id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        x: textNodeToClone.x + 20,
+        y: textNodeToClone.y + 20,
+      };
+      setTextNodes(prev => [...prev, newTextNode]);
     }
   };
 
@@ -441,6 +510,7 @@ function App() {
     const idsSet = new Set(ids);
     setCanvasDocuments(prev => prev.filter(d => !idsSet.has(d._id)));
     setGapNodes(prev => prev.filter(n => !idsSet.has(n.id)));
+    setTextNodes(prev => prev.filter(n => !idsSet.has(n.id)));
   };
 
 
@@ -476,7 +546,22 @@ function App() {
     if (found) return;
 
     // 2. Try Gap Node
+    let gapFound = false;
     setGapNodes(prev => {
+      const idx = prev.findIndex(n => n.id === docId);
+      if (idx !== -1) {
+        gapFound = true;
+        const newArr = [...prev];
+        newArr[idx] = { ...newArr[idx], dimmed: !newArr[idx].dimmed };
+        return newArr;
+      }
+      return prev;
+    });
+
+    if (gapFound) return;
+
+    // 3. Try Text Node
+    setTextNodes(prev => {
       const idx = prev.findIndex(n => n.id === docId);
       if (idx !== -1) {
         const newArr = [...prev];
@@ -1075,6 +1160,7 @@ function App() {
               <Canvas
                 documents={canvasDocuments}
                 gapNodes={gapNodes}
+                textNodes={textNodes}
                 viewState={canvasView}
                 onViewStateChange={setCanvasView}
                 onUpdatePosition={handleUpdateCanvasPosition}
@@ -1083,6 +1169,10 @@ function App() {
                 onUpdateGapNodePosition={handleUpdateGapNodePosition}
                 onAddGapNode={handleAddGapNode}
                 onDeleteGapNode={handleDeleteGapNode}
+                onAddTextNode={handleAddTextNode}
+                onUpdateTextNode={handleUpdateTextNode}
+                onUpdateTextNodePosition={handleUpdateTextNodePosition}
+                onDeleteTextNode={handleDeleteTextNode}
                 onConnect={handleConnectRequest}
                 onClone={handleCloneCanvasDocument}
                 onDelete={handleDeleteCanvasDocument}
