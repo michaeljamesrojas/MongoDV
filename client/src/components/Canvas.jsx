@@ -38,7 +38,7 @@ const getDocIdFromStableId = (stableId) => {
 };
 
 // Managed separately to avoid Canvas re-rendering on every frame
-const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRegistry, zoom, pan, isPanning = false, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
+const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRegistry, zoom, pan, isPanning = false, hideArrowsWhilePanning = false, canvasRef, documents, idColorOverrides = {}, showBackdroppedArrows = true, showAllArrows = true, cardRefs }) => {
     // Track dimmed document IDs for line dimming
     const dimmedDocIds = useMemo(() => {
         const set = new Set();
@@ -58,19 +58,20 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
     useEffect(() => {
         const updateLines = () => {
             // Track panning state transitions for settle delay
-            if (isPanning) {
+            // Only skip during panning if hideArrowsWhilePanning is enabled
+            if (isPanning && hideArrowsWhilePanning) {
                 wasPanningRef.current = true;
                 frameRef.current = requestAnimationFrame(updateLines);
                 return;
-            } else if (wasPanningRef.current) {
+            } else if (wasPanningRef.current && !isPanning) {
                 // Just stopped panning - record time and start settle period
                 wasPanningRef.current = false;
                 panSettleTimeRef.current = performance.now();
             }
 
-            // Skip updates during settle period after panning
+            // Skip updates during settle period after panning (only if we were hiding)
             const timeSincePanStop = performance.now() - panSettleTimeRef.current;
-            if (panSettleTimeRef.current > 0 && timeSincePanStop < PAN_SETTLE_MS) {
+            if (panSettleTimeRef.current > 0 && timeSincePanStop < PAN_SETTLE_MS && hideArrowsWhilePanning) {
                 frameRef.current = requestAnimationFrame(updateLines);
                 return;
             }
@@ -96,6 +97,9 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
 
             const newLines = [];
             const nodes = Array.from(nodeRegistry.current.values());
+
+            // PERF LOG: Track line computation time
+            const lineComputeStart = performance.now();
 
             // 1. Regular Document Connections
             const grouped = {};
@@ -310,13 +314,19 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
                 });
             }
 
+            // PERF LOG: Warn if line computation takes too long
+            const lineComputeDuration = performance.now() - lineComputeStart;
+            if (lineComputeDuration > 16) {
+                console.warn(`[PERF] ConnectionLayer updateLines took ${lineComputeDuration.toFixed(1)}ms (${newLines.length} lines, ${nodes.length} nodes)`);
+            }
+
             setLines(newLines);
             frameRef.current = requestAnimationFrame(updateLines);
         };
 
         updateLines();
         return () => cancelAnimationFrame(frameRef.current);
-    }, [gapNodes, diffNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides, showAllArrows, showBackdroppedArrows]);
+    }, [gapNodes, diffNodes, arrowDirection, zoom, pan, nodeRegistry, canvasRef, documents, dimmedDocIds, idColorOverrides, showAllArrows, showBackdroppedArrows, isPanning, hideArrowsWhilePanning]);
 
     // Get unique values to create markers for
     const uniqueValues = useMemo(() => {
@@ -388,6 +398,15 @@ const ConnectionLayer = memo(({ gapNodes, diffNodes = [], arrowDirection, nodeRe
             })}
         </svg>
     );
+});
+
+// Helper to hide arrows during panning (wraps ConnectionLayer)
+const ConnectionLayerWrapper = memo(({ isPanning, hideArrowsWhilePanning, ...props }) => {
+    // Hide completely during panning if the toggle is enabled
+    if (isPanning && hideArrowsWhilePanning) {
+        return null;
+    }
+    return <ConnectionLayer isPanning={isPanning} hideArrowsWhilePanning={hideArrowsWhilePanning} {...props} />;
 });
 
 const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connectionHistoryVersion, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions, onContextMenu }) => {
@@ -1549,6 +1568,7 @@ const Canvas = ({
     const { pan, zoom } = viewState || { pan: { x: 0, y: 0 }, zoom: 1 };
 
     const [isPanning, setIsPanning] = useState(false);
+    const [hideArrowsWhilePanning, setHideArrowsWhilePanning] = useState(true); // Default ON for performance
     const canvasRef = useRef(null);
     const [selectedIds, setSelectedIds] = useState([]);
 
@@ -1908,6 +1928,7 @@ const Canvas = ({
     };
 
     const handlePanMove = (e) => {
+        const panMoveStart = performance.now();
         if (!panStartRef.current) return;
 
         const { startMouseX, startMouseY, startPanX, startPanY } = panStartRef.current;
@@ -1926,6 +1947,12 @@ const Canvas = ({
         }
         if (gridRef.current) {
             gridRef.current.style.backgroundPosition = `${newPanX}px ${newPanY}px`;
+        }
+
+        // PERF LOG: Warn if pan move takes too long
+        const panMoveDuration = performance.now() - panMoveStart;
+        if (panMoveDuration > 8) {
+            console.warn(`[PERF] handlePanMove took ${panMoveDuration.toFixed(1)}ms`);
         }
     };
 
@@ -2547,7 +2574,7 @@ const Canvas = ({
             </div>
 
             {/* Connection Lines Layer */}
-            <ConnectionLayer
+            <ConnectionLayerWrapper
                 gapNodes={gapNodes}
                 diffNodes={diffNodes}
                 arrowDirection={arrowDirection}
@@ -2555,6 +2582,7 @@ const Canvas = ({
                 zoom={zoom}
                 pan={pan}
                 isPanning={isPanning}
+                hideArrowsWhilePanning={hideArrowsWhilePanning}
                 canvasRef={canvasRef}
                 documents={documents}
                 idColorOverrides={idColorOverrides}
@@ -3339,6 +3367,24 @@ const Canvas = ({
                     }}
                 >
                     {showAllArrows ? '⤡' : '✕'}
+                </button>
+                <button
+                    onClick={() => setHideArrowsWhilePanning(prev => !prev)}
+                    title={hideArrowsWhilePanning ? "Show Arrows While Panning" : "Hide Arrows While Panning"}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: hideArrowsWhilePanning ? '#4ade80' : '#94a3b8',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: hideArrowsWhilePanning ? 'rgba(74, 222, 128, 0.15)' : 'transparent'
+                    }}
+                >
+                    {hideArrowsWhilePanning ? '🚀' : '🐢'}
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button onClick={() => { onViewStateChange({ pan: { x: 0, y: 0 }, zoom: 1 }); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>Reset</button>
