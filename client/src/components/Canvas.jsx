@@ -822,6 +822,7 @@ const DraggableGapNode = memo(({ node, text, zoom, onUpdatePosition, onDelete, i
                 opacity: node.dimmed ? 0.3 : 1,
                 filter: node.dimmed ? 'blur(1px) grayscale(50%)' : 'none'
             }}
+            data-centered="true"
         >
             {text}
             <button
@@ -1111,6 +1112,7 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
                 opacity: node.dimmed ? 0.3 : 1,
                 filter: node.dimmed ? 'blur(1px) grayscale(50%)' : 'none',
             }}
+            data-centered="true"
         >
             {/* Header */}
             <div style={{
@@ -1323,6 +1325,7 @@ const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpda
                 opacity: node.dimmed ? 0.5 : 1,
                 filter: node.dimmed ? 'blur(0.5px)' : 'none'
             }}
+            data-centered="true"
         >
             {isEditing ? (
                 <textarea
@@ -1499,17 +1502,18 @@ const DraggableImageNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpd
                 // For now, let's rely on DraggableCard's ResizeObserver logic if we want to support verify resizing.
                 // But DraggableCard uses resize: both style. 
             }}
-        // We need to support resizing. DraggableCard implementation uses `resize: both` and ResizeObserver.
-        // We can do the same here if we add `resize: both` and `overflow: hidden`.
-        // However, transform translate(-50%, -50%) messes up CSS resize handles because they stay at the limit of the element,
-        // but visual bounds shift.
-        // DraggableCard uses left/top without translation for anchor?
-        // Let's check DraggableCard. 
-        // DraggableCard uses `left: currentX, top: currentY`.
-        // DraggableGapNode uses `transform: translate(-50%, -50%)`.
-        // TextNode uses `transform: translate(-50%, -50%)`.
-        // If we want resize handles to work naturally, we might want top-left anchor or custom handles.
-        // For simplicity, let's try `resize: both` but we might need to adjust logic later if handles are wonky.
+            // We need to support resizing. DraggableCard implementation uses `resize: both` and ResizeObserver.
+            // We can do the same here if we add `resize: both` and `overflow: hidden`.
+            // However, transform translate(-50%, -50%) messes up CSS resize handles because they stay at the limit of the element,
+            // but visual bounds shift.
+            // DraggableCard uses left/top without translation for anchor?
+            // Let's check DraggableCard. 
+            // DraggableCard uses `left: currentX, top: currentY`.
+            // DraggableGapNode uses `transform: translate(-50%, -50%)`.
+            // TextNode uses `transform: translate(-50%, -50%)`.
+            // If we want resize handles to work naturally, we might want top-left anchor or custom handles.
+            // For simplicity, let's try `resize: both` but we might need to adjust logic later if handles are wonky.
+            data-centered="true"
         >
             <input
                 type="file"
@@ -2276,11 +2280,17 @@ const Canvas = ({
                 const originalZIndex = el.style.zIndex;
                 el.style.zIndex = 1000; // Bring to front
 
+                // Check for centered attribute
+                const isCentered = el.getAttribute('data-centered') === 'true';
+                const originalTransform = el.style.transform;
+
                 dragInfo.targets[selId] = {
                     el,
                     modelX,
                     modelY,
-                    originalZIndex
+                    originalZIndex,
+                    originalTransform,
+                    isCentered
                 };
             }
         });
@@ -2303,8 +2313,12 @@ const Canvas = ({
         const dy = (e.clientY - startY) / zoom;
 
         // Apply visual transform to all targets
-        Object.values(targets).forEach(({ el }) => {
-            el.style.transform = `translate(${dx}px, ${dy}px)`;
+        Object.values(targets).forEach(({ el, isCentered }) => {
+            let transform = `translate(${dx}px, ${dy}px)`;
+            if (isCentered) {
+                transform += ' translate(-50%, -50%)';
+            }
+            el.style.transform = transform;
         });
     };
 
@@ -2318,8 +2332,8 @@ const Canvas = ({
         const dy = (e.clientY - startY) / zoom;
 
         // Cleanup DOM overrides
-        Object.values(targets).forEach(({ el, originalZIndex }) => {
-            el.style.transform = ''; // Remove temp transform
+        Object.values(targets).forEach(({ el, originalZIndex, originalTransform }) => {
+            el.style.transform = originalTransform; // Restore original transform (e.g. translate(-50%, -50%))
             el.style.transition = ''; // Restore transitions
             el.style.zIndex = '';
         });
