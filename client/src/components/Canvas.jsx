@@ -1978,8 +1978,8 @@ const Canvas = ({
         const mouseY = e.clientY - rect.top;
 
         const zoomSensitivity = 0.001;
-        const delta = -e.deltaY * zoomSensitivity;
-        const newZoom = Math.min(Math.max(zoom + delta, 0.1), 5);
+        const zoomFactor = Math.exp(-e.deltaY * zoomSensitivity);
+        const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.01), 10);
 
         const scaleFactor = newZoom / zoom;
 
