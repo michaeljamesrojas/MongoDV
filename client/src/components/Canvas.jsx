@@ -979,7 +979,7 @@ const DiffValue = ({ value, type, oldValue, newValue }) => {
     return <span style={{ color: '#94a3b8' }}>{formatValue(value)}</span>;
 };
 
-const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, isSelected, onMouseDown, registerRef, onContextMenu }) => {
+const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, isSelected, onMouseDown, registerRef, onContextMenu, onUpdateDiffNode }) => {
     const nodeRef = useRef(null);
     const currentX = node.x;
     const currentY = node.y;
@@ -992,6 +992,68 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
             return () => registerRef(node.id, null);
         }
     }, [node.id, registerRef]);
+
+    // Handle Resize Logic
+    useEffect(() => {
+        if (!nodeRef.current) return;
+
+        // Apply initial dimensions if they exist
+        if (node.width) {
+            nodeRef.current.style.width = `${node.width}px`;
+        }
+        if (node.height) {
+            nodeRef.current.style.height = `${node.height}px`;
+        }
+
+        let timeout;
+        const debouncedUpdate = (w, h) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                if (onUpdateDiffNode) {
+                    onUpdateDiffNode(node.id, { width: w, height: h });
+                }
+            }, 500);
+        };
+
+        const ro = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const target = entry.target;
+                const hasInlineWidth = target.style.width !== "";
+                const hasInlineHeight = target.style.height !== "";
+
+                const actualWidth = target.offsetWidth;
+                const actualHeight = target.offsetHeight;
+
+                const currentWidth = node.width;
+                const currentHeight = node.height;
+
+                let shouldUpdate = false;
+                let updateWidth = currentWidth;
+                let updateHeight = currentHeight;
+
+                // Sync width if it differs (DiffNode has minWidth, so check diff)
+                if (Math.abs(actualWidth - (currentWidth || 320)) > 3) {
+                    shouldUpdate = true;
+                    updateWidth = actualWidth;
+                }
+
+                if (hasInlineHeight && Math.abs(actualHeight - (currentHeight || 0)) > 3) {
+                    shouldUpdate = true;
+                    updateHeight = actualHeight;
+                }
+
+                if (shouldUpdate) {
+                    debouncedUpdate(updateWidth, updateHeight);
+                }
+            }
+        });
+
+        ro.observe(nodeRef.current);
+        return () => {
+            ro.disconnect();
+            clearTimeout(timeout);
+        };
+    }, [node.id, onUpdateDiffNode, node.width, node.height]);
 
     // Compute diff
     const diffs = useMemo(() => {
@@ -1010,6 +1072,14 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
             ref={nodeRef}
             onContextMenu={(e) => onContextMenu && onContextMenu(e, node.id)}
             onMouseDown={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                // Check if clicking resize handle (bottom-right)
+                const isResizeHandle = e.clientX > rect.right - 20 && e.clientY > rect.bottom - 20;
+                if (isResizeHandle) {
+                    e.stopPropagation();
+                    return;
+                }
+
                 e.stopPropagation();
                 onMouseDown(e, node.id);
             }}
@@ -1023,8 +1093,14 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
                 borderRadius: '8px',
                 padding: '0',
                 minWidth: '320px',
-                maxWidth: '500px',
-                maxHeight: '400px',
+                // Explicitly bind width/height if present, else let CSS handle mins/maxs
+                width: node.width,
+                height: node.height,
+                // Remove max constraints when resizing is enabled/active
+                maxWidth: node.width ? 'none' : '500px',
+                maxHeight: node.height ? 'none' : '400px',
+                resize: 'both',
+                overflow: 'hidden',
                 cursor: 'grab',
                 zIndex: isSelected ? 2001 : 100,
                 boxShadow: isSelected ? '0 0 0 3px var(--primary), 0 8px 16px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.3)',
@@ -1034,7 +1110,6 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
                 transition: 'box-shadow 0.2s, border 0.2s, opacity 0.2s, filter 0.2s',
                 opacity: node.dimmed ? 0.3 : 1,
                 filter: node.dimmed ? 'blur(1px) grayscale(50%)' : 'none',
-                overflow: 'hidden'
             }}
         >
             {/* Header */}
@@ -1045,7 +1120,8 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
                 padding: '8px 12px',
                 background: 'rgba(0,0,0,0.2)',
                 borderBottom: '1px solid var(--glass-border)',
-                gap: '8px'
+                gap: '8px',
+                flexShrink: 0
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden' }}>
                     <span style={{ color: '#f87171' }}>{getShortId(sourceDoc?.data?._id)}</span>
@@ -1079,7 +1155,7 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
             <div style={{
                 padding: '8px 12px',
                 overflowY: 'auto',
-                maxHeight: '340px',
+                flex: 1, // Take remaining space
                 fontSize: '0.85rem'
             }}>
                 {!sourceDoc || !targetDoc ? (
@@ -1092,36 +1168,59 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {diffs.map((diff, idx) => (
-                            <div key={idx} style={{
-                                display: 'flex',
-                                gap: '8px',
-                                padding: '4px 6px',
-                                borderRadius: '4px',
-                                background: diff.type === 'added' ? 'rgba(74, 222, 128, 0.1)' :
-                                    diff.type === 'removed' ? 'rgba(248, 113, 113, 0.1)' :
-                                        'rgba(148, 163, 184, 0.1)'
-                            }}>
-                                <span style={{
-                                    color: diff.type === 'added' ? '#4ade80' :
-                                        diff.type === 'removed' ? '#f87171' :
-                                            '#94a3b8',
-                                    fontWeight: 500,
-                                    minWidth: '30%',
-                                    wordBreak: 'break-word'
+                        {diffs.map((diff, idx) => {
+                            let dateGap = null;
+                            if (diff.type === 'changed' && typeof diff.oldValue === 'string' && typeof diff.newValue === 'string') {
+                                const d1 = new Date(diff.oldValue);
+                                const d2 = new Date(diff.newValue);
+                                // Heuristic: valid valid date and string length > 5 (avoids short numbers/strings)
+                                if (!isNaN(d1.getTime()) && !isNaN(d2.getTime()) && diff.oldValue.length > 5 && diff.newValue.length > 5 && d1.getFullYear() > 1900 && d1.getFullYear() < 2200) {
+                                    dateGap = calculateTimeGap(d1, d2);
+                                }
+                            }
+
+                            return (
+                                <div key={idx} style={{
+                                    display: 'flex',
+                                    gap: '8px',
+                                    padding: '4px 6px',
+                                    borderRadius: '4px',
+                                    background: diff.type === 'added' ? 'rgba(74, 222, 128, 0.1)' :
+                                        diff.type === 'removed' ? 'rgba(248, 113, 113, 0.1)' :
+                                            'rgba(148, 163, 184, 0.1)',
+                                    alignItems: 'flex-start'
                                 }}>
-                                    {diff.path}:
-                                </span>
-                                <span style={{ wordBreak: 'break-word', flex: 1 }}>
-                                    <DiffValue
-                                        type={diff.type}
-                                        value={diff.value}
-                                        oldValue={diff.oldValue}
-                                        newValue={diff.newValue}
-                                    />
-                                </span>
-                            </div>
-                        ))}
+                                    <span style={{
+                                        color: diff.type === 'added' ? '#4ade80' :
+                                            diff.type === 'removed' ? '#f87171' :
+                                                '#94a3b8',
+                                        fontWeight: 500,
+                                        minWidth: '30%',
+                                        wordBreak: 'break-word'
+                                    }}>
+                                        {diff.path}:
+                                    </span>
+                                    <span style={{ wordBreak: 'break-word', flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        <DiffValue
+                                            type={diff.type}
+                                            value={diff.value}
+                                            oldValue={diff.oldValue}
+                                            newValue={diff.newValue}
+                                        />
+                                        {dateGap && (
+                                            <span style={{
+                                                fontSize: '0.75rem',
+                                                color: '#fbbf24',
+                                                fontStyle: 'italic',
+                                                marginTop: '2px'
+                                            }}>
+                                                Gap: {dateGap.replace(/^(After:|Before:)\s*/, '')} {dateGap.startsWith('After:') ? '(later)' : '(earlier)'}
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -1539,6 +1638,7 @@ const Canvas = ({
     diffNodes = [],
     onAddDiffNode,
     onUpdateDiffNodePosition,
+    onUpdateDiffNode,
     onDeleteDiffNode,
     onToggleExpand,
     markedSources = new Set(),
@@ -2477,6 +2577,7 @@ const Canvas = ({
                                 sourceDoc={docMap.get(node.sourceDocId)}
                                 targetDoc={docMap.get(node.targetDocId)}
                                 zoom={zoom}
+                                onUpdateDiffNode={onUpdateDiffNode}
                                 onDelete={onDeleteDiffNode}
                                 isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
                                 onMouseDown={handleCardMouseDown}

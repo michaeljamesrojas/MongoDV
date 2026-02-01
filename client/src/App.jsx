@@ -420,6 +420,11 @@ function App() {
     setDiffNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
   }, [diffNodes, saveHistoryPoint]);
 
+  const handleUpdateDiffNode = useCallback((id, updates) => {
+    saveHistoryPoint();
+    setDiffNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+  }, [saveHistoryPoint]);
+
   const handleDeleteDiffNode = useCallback((id) => {
     saveHistoryPoint();
     setDiffNodes(prev => prev.filter(n => n.id !== id));
@@ -1367,6 +1372,7 @@ function App() {
                 diffNodes={diffNodes}
                 onAddDiffNode={handleAddDiffNode}
                 onUpdateDiffNodePosition={handleUpdateDiffNodePosition}
+                onUpdateDiffNode={handleUpdateDiffNode}
                 onDeleteDiffNode={handleDeleteDiffNode}
                 onConnect={handleConnectRequest}
                 onQuickConnect={handleQuickConnect}
