@@ -740,6 +740,38 @@ function App() {
     }));
   }, [saveHistoryPoint]);
 
+  const handleSaveDocumentVersion = useCallback((id, newData) => {
+    saveHistoryPoint();
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === id) {
+        const versions = doc.versions || [doc.data]; // Initialize with original if none
+        const newVersions = [...versions, newData];
+        return {
+          ...doc,
+          versions: newVersions,
+          activeVersionIndex: newVersions.length - 1,
+          data: newData // Update current data to the new version
+        };
+      }
+      return doc;
+    }));
+  }, [saveHistoryPoint]);
+
+  const handleSelectDocumentVersion = useCallback((id, versionIndex) => {
+    saveHistoryPoint();
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === id) {
+        if (!doc.versions || !doc.versions[versionIndex]) return doc;
+        return {
+          ...doc,
+          activeVersionIndex: versionIndex,
+          data: doc.versions[versionIndex]
+        };
+      }
+      return doc;
+    }));
+  }, [saveHistoryPoint]);
+
   const handleIdColorChange = useCallback((id) => {
     saveHistoryPoint();
     setIdColorOverrides(prev => ({
@@ -1383,7 +1415,9 @@ function App() {
                 viewState={canvasView}
                 onViewStateChange={setCanvasView}
                 onUpdatePosition={handleUpdateCanvasPosition}
-                onUpdatePositions={handleUpdateCanvasPositions}
+                onUpdateData={handleUpdateCanvasDocumentData}
+                onSaveVersion={handleSaveDocumentVersion}
+                onSelectVersion={handleSelectDocumentVersion}
                 onUpdateDimensions={handleUpdateCanvasDimensions}
                 onUpdateGapNodePosition={handleUpdateGapNodePosition}
                 onAddGapNode={handleAddGapNode}
@@ -1414,7 +1448,7 @@ function App() {
                 currentSaveName={currentSaveName}
                 onToggleExpand={handleToggleExpand}
                 onToggleBackdrop={handleToggleBackdrop}
-                onUpdateData={handleUpdateCanvasDocumentData}
+
                 onAddCustomDocument={handleAddCustomDocument}
                 markedSources={markedSources}
                 onMarkedSourcesChange={handleMarkedSourcesChange}
