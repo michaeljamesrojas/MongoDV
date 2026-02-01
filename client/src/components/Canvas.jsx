@@ -1665,7 +1665,9 @@ const Canvas = ({
     onUndo,
     onRedo,
     canUndo,
-    canRedo
+    canRedo,
+    selectedIds,
+    setSelectedIds
 }) => {
     const { showToast } = useToast();
     // destruct defaults if undefined to avoid crash, though App passes them
@@ -1674,7 +1676,7 @@ const Canvas = ({
     const [isPanning, setIsPanning] = useState(false);
     const [hideArrowsWhilePanning, setHideArrowsWhilePanning] = useState(true); // Default ON for performance
     const canvasRef = useRef(null);
-    const [selectedIds, setSelectedIds] = useState([]);
+    // const [selectedIds, setSelectedIds] = useState([]); // Moved to App.jsx
 
     // DRAG REFACTOR: Refs for high-performance dragging without re-renders
     const selectedIdsRef = useRef([]); // Keep in sync with selectedIds state

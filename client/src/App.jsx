@@ -46,6 +46,7 @@ function App() {
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [currentSaveName, setCurrentSaveName] = useState(null); // Track which save is currently loaded
   const [idColorOverrides, setIdColorOverrides] = useState({}); // { [id]: variationIndex }
+  const [selectedIds, setSelectedIds] = useState([]); // Lifted state from Canvas
 
   const { showToast } = useToast();
   // History Logic
@@ -862,6 +863,31 @@ function App() {
 
       return [...prev, ...addedDocs];
     });
+
+    // Auto-select newly added documents
+    const newDocIds = newDocs.map(d => d._id || d.id); // Handle potential ID variations if any, though _id is standard here
+    // But wait, the mapping above generates IDs if missing. We need the IDs that were *actually* added.
+    // The previous logic generated IDs inside the map.
+    // We need to capture those IDs.
+    // Let's refactor the setCanvasDocuments update to first calculate the new docs, then update both states.
+    // Actually, setCanvasDocuments functional update is tricky if we need the result.
+    // But we can generate the IDs *before* the update or replicate the ID generation logic.
+    // The ID generation uses Math.random() so it's not deterministic if we do it twice.
+    // Better strategy: Calculate addedDocs outside the setter first?
+    // Accessing `prev` is the issue.
+    // We can rely on `newDocs` if they already have _id. Most `fetchDocuments` results have `_id`.
+    // If they don't, the code generates them.
+    // If `newDocs` comes from `fetchDocuments`, it has `_id`.
+    // Let's assume `newDocs` have `_id` for now as they come from DB.
+    // If it is a fresh connection, they are DB docs.
+    if (newDocs && newDocs.length > 0) {
+      // We only know the _ids if they are in newDocs.
+      // If the code above generates IDs, we might miss them.
+      // However, handleQuickConnect passes `data.documents` which definitely have `_id` from Mongo.
+      // So we can trust `newDocs` to have `_id`.
+      const newIds = newDocs.map(d => d._id);
+      setSelectedIds(newIds);
+    }
   };
 
   const getSavesFromStorage = () => {
@@ -1349,6 +1375,8 @@ function App() {
           <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
             {showCanvas ? (
               <Canvas
+                selectedIds={selectedIds}
+                setSelectedIds={setSelectedIds}
                 documents={canvasDocuments}
                 gapNodes={gapNodes}
                 textNodes={textNodes}
