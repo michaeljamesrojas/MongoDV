@@ -1,13 +1,15 @@
 # MongoDV
 
+
 <div align="center">
 
-**A visualizer for data for investigating data.**
-*Stop squinting at JSON tables. Start investigating with flow.*
+**Your database is a crime scene. This is your corkboard.**
+*A visual investigation tool for MongoDB featuring an infinite canvas, drag-and-drop linking, and time-travel history.*
 
 > This project is vibe coded.
 
 </div>
+
 
 ---
 
