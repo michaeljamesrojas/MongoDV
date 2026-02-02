@@ -58,6 +58,7 @@ There are two ways to begin a "case":
 ### 3. Follow the Thread
 Once a document is on the canvas, look for `ObjectId` fields. 
 - **The ID Text**: Click any ID string (underlined) to open the **Connect Modal**. This lets you manually choose which collection that ID belongs to.
+- **Visual Links**: Arrows are automatically drawn between the source document and the references, creating an instant visual map of your data relations.
 - **Quick Connect (⚡)**: Click the **⚡** icon to instantly fetch and connect that document using automatic prediction.
 - **Memory (🚀)**: Once connected, the icon turns into **🚀**, remembering the relationship for one-click access next time.
 - **Randomize (👁)**: Click the eye icon next to an ID to change its visual color across the entire board.
@@ -104,7 +105,7 @@ The canvas HUD (bottom-right) provides quick access to essential tools:
 ### ⚡ Quick Connect
 **The most powerful tool in your kit.**
 - **Manual**: Click any **underlined ObjectId** to open the Connect Modal. Choose your target collection and query for the data.
-- **Fast**: Click the **⚡** icon to instantly fetch and connect that document using automatic prediction.
+- **Fast**: Click the **⚡** icon to instantly fetch and connect that document, extending an arrow to visually link the source and reference.
 - **Persistent**: Once connected, the icon upgrades to **🚀**. It remembers which database and collection that ID belongs to, so next time it's one click to pull up the related data.
 
 <br/>
