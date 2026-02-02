@@ -11,7 +11,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "Your database is a crime scene. This is your corkboard. A visual investigation tool for MongoDB featuring an infinite canvas, drag-and-drop linking, and time-travel history.",
+  "description": "Your database is a crime scene. This is your corkboard. A visual investigation tool for MongoDB featuring an infinite canvas, drag-and-drop linking, and visual comparison tools.",
   "devDependencies": {
     "concurrently": "^9.2.1"
   }
