@@ -273,8 +273,6 @@ function App() {
   const handleAddToCanvas = useCallback((doc) => {
     saveHistoryPoint();
     setCanvasDocuments(prev => {
-      if (prev.find(d => d._id === doc._id)) return prev;
-
       // Calculate center of current viewport
       const W = window.innerWidth - 300; // Sidebar is 300px
       const H = window.innerHeight;
@@ -283,7 +281,7 @@ function App() {
 
       showToast('Added to canvas', 'success', 2000);
       return [...prev, {
-        _id: doc._id || Math.random().toString(36).substr(2, 9),
+        _id: Math.random().toString(36).substr(2, 9),
         data: doc,
         collection: selectedCollection?.col || 'Unknown',
         x: centerX - 175, // Center the 350px card
@@ -297,12 +295,11 @@ function App() {
 
   const handleAddCustomDocument = useCallback((data, x, y) => {
     saveHistoryPoint();
-    const newId = data._id || `custom-${Math.random().toString(36).substr(2, 9)}`;
+    const newId = `custom-${Math.random().toString(36).substr(2, 9)}`;
     setCanvasDocuments(prev => {
-      if (prev.find(d => d._id === newId)) return prev;
       return [...prev, {
         _id: newId,
-        data: { ...data, _id: newId },
+        data: { ...data, _id: data._id || newId },
         collection: 'Custom',
         x: x,
         y: y,
@@ -641,6 +638,36 @@ function App() {
   };
 
 
+  // Helper to recursively find all paths that point to objects or arrays
+  const getAllPaths = (data, prefix = '') => {
+    let paths = [];
+    if (!data || typeof data !== 'object') return paths;
+
+    // Handle Array
+    if (Array.isArray(data)) {
+      data.forEach((item, index) => {
+        const currentPath = `${prefix ? prefix + '.' : ''}${index}`;
+        if (typeof item === 'object' && item !== null) {
+          paths.push(currentPath);
+          paths = paths.concat(getAllPaths(item, currentPath));
+        }
+      });
+      return paths;
+    }
+
+    // Handle Object
+    Object.keys(data).forEach(key => {
+      const value = data[key];
+      const currentPath = `${prefix ? prefix + '.' : ''}${key}`;
+      if (typeof value === 'object' && value !== null) {
+        paths.push(currentPath);
+        paths = paths.concat(getAllPaths(value, currentPath));
+      }
+    });
+
+    return paths;
+  };
+
   const handleToggleExpand = useCallback((docId, path) => {
     saveHistoryPoint();
     setCanvasDocuments(prev => prev.map(doc => {
@@ -651,6 +678,27 @@ function App() {
           : [...currentPaths, path];
         // Reset height to null (auto) so the card resizes to fit new content
         return { ...doc, expandedPaths: newPaths, height: null };
+      }
+      return doc;
+    }));
+  }, [saveHistoryPoint]);
+
+  const handleExpandAll = useCallback((docId) => {
+    saveHistoryPoint();
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === docId) {
+        const allPaths = getAllPaths(doc.data);
+        return { ...doc, expandedPaths: allPaths, height: null };
+      }
+      return doc;
+    }));
+  }, [saveHistoryPoint]);
+
+  const handleCollapseAll = useCallback((docId) => {
+    saveHistoryPoint();
+    setCanvasDocuments(prev => prev.map(doc => {
+      if (doc._id === docId) {
+        return { ...doc, expandedPaths: [], height: null };
       }
       return doc;
     }));
@@ -740,38 +788,6 @@ function App() {
     }));
   }, [saveHistoryPoint]);
 
-  const handleSaveDocumentVersion = useCallback((id, newData) => {
-    saveHistoryPoint();
-    setCanvasDocuments(prev => prev.map(doc => {
-      if (doc._id === id) {
-        const versions = doc.versions || [doc.data]; // Initialize with original if none
-        const newVersions = [...versions, newData];
-        return {
-          ...doc,
-          versions: newVersions,
-          activeVersionIndex: newVersions.length - 1,
-          data: newData // Update current data to the new version
-        };
-      }
-      return doc;
-    }));
-  }, [saveHistoryPoint]);
-
-  const handleSelectDocumentVersion = useCallback((id, versionIndex) => {
-    saveHistoryPoint();
-    setCanvasDocuments(prev => prev.map(doc => {
-      if (doc._id === id) {
-        if (!doc.versions || !doc.versions[versionIndex]) return doc;
-        return {
-          ...doc,
-          activeVersionIndex: versionIndex,
-          data: doc.versions[versionIndex]
-        };
-      }
-      return doc;
-    }));
-  }, [saveHistoryPoint]);
-
   const handleIdColorChange = useCallback((id) => {
     saveHistoryPoint();
     setIdColorOverrides(prev => ({
@@ -853,10 +869,15 @@ function App() {
 
     saveHistoryPoint();
 
+    // Generate unique canvas IDs for each document before updating state
+    const addedDocsWithIds = newDocs.map((doc, idx) => ({
+      canvasId: Math.random().toString(36).substr(2, 9),
+      doc,
+      idx
+    }));
+
     // Add new docs to canvas
     setCanvasDocuments(prev => {
-      const existingIds = new Set(prev.map(d => d._id));
-
       // Find source document position if available
       const sourceId = explicitSourceId || connectModalState.sourceId;
       const sourceDoc = prev.find(d => d._id === sourceId);
@@ -874,52 +895,25 @@ function App() {
         baseY = (H / 2 - canvasView.pan.y) / canvasView.zoom - 100;
       }
 
-      const addedDocs = newDocs
-        .filter(d => !existingIds.has(d._id))
-        .map((doc, idx) => ({
-          _id: doc._id || Math.random().toString(36).substr(2, 9),
-          data: doc,
-          collection: collectionName || 'Unknown',
-          x: baseX + idx * 30, // Offset each new doc slightly
-          y: baseY + idx * 30,
-          width: 350,
-          height: null,
-          expandedPaths: []
-        }));
+      const addedDocs = addedDocsWithIds.map(({ canvasId, doc, idx }) => ({
+        _id: canvasId,
+        data: doc,
+        collection: collectionName || 'Unknown',
+        x: baseX + idx * 30, // Offset each new doc slightly
+        y: baseY + idx * 30,
+        width: 350,
+        height: null,
+        expandedPaths: []
+      }));
 
-      if (addedDocs.length > 0) {
-        showToast(`Connected ${addedDocs.length} document${addedDocs.length > 1 ? 's' : ''}`, 'success', 2000);
-      } else if (newDocs.length > 0) {
-        showToast('Documents already on canvas', 'info', 2000);
-      }
+      showToast(`Connected ${addedDocs.length} document${addedDocs.length > 1 ? 's' : ''}`, 'success', 2000);
 
       return [...prev, ...addedDocs];
     });
 
-    // Auto-select newly added documents
-    const newDocIds = newDocs.map(d => d._id || d.id); // Handle potential ID variations if any, though _id is standard here
-    // But wait, the mapping above generates IDs if missing. We need the IDs that were *actually* added.
-    // The previous logic generated IDs inside the map.
-    // We need to capture those IDs.
-    // Let's refactor the setCanvasDocuments update to first calculate the new docs, then update both states.
-    // Actually, setCanvasDocuments functional update is tricky if we need the result.
-    // But we can generate the IDs *before* the update or replicate the ID generation logic.
-    // The ID generation uses Math.random() so it's not deterministic if we do it twice.
-    // Better strategy: Calculate addedDocs outside the setter first?
-    // Accessing `prev` is the issue.
-    // We can rely on `newDocs` if they already have _id. Most `fetchDocuments` results have `_id`.
-    // If they don't, the code generates them.
-    // If `newDocs` comes from `fetchDocuments`, it has `_id`.
-    // Let's assume `newDocs` have `_id` for now as they come from DB.
-    // If it is a fresh connection, they are DB docs.
-    if (newDocs && newDocs.length > 0) {
-      // We only know the _ids if they are in newDocs.
-      // If the code above generates IDs, we might miss them.
-      // However, handleQuickConnect passes `data.documents` which definitely have `_id` from Mongo.
-      // So we can trust `newDocs` to have `_id`.
-      const newIds = newDocs.map(d => d._id);
-      setSelectedIds(newIds);
-    }
+    // Auto-select newly added documents using the canvas IDs we generated
+    const newIds = addedDocsWithIds.map(({ canvasId }) => canvasId);
+    setSelectedIds(newIds);
   };
 
   const getSavesFromStorage = () => {
@@ -1415,9 +1409,7 @@ function App() {
                 viewState={canvasView}
                 onViewStateChange={setCanvasView}
                 onUpdatePosition={handleUpdateCanvasPosition}
-                onUpdateData={handleUpdateCanvasDocumentData}
-                onSaveVersion={handleSaveDocumentVersion}
-                onSelectVersion={handleSelectDocumentVersion}
+                onUpdatePositions={handleUpdateCanvasPositions}
                 onUpdateDimensions={handleUpdateCanvasDimensions}
                 onUpdateGapNodePosition={handleUpdateGapNodePosition}
                 onAddGapNode={handleAddGapNode}
@@ -1448,7 +1440,7 @@ function App() {
                 currentSaveName={currentSaveName}
                 onToggleExpand={handleToggleExpand}
                 onToggleBackdrop={handleToggleBackdrop}
-
+                onUpdateData={handleUpdateCanvasDocumentData}
                 onAddCustomDocument={handleAddCustomDocument}
                 markedSources={markedSources}
                 onMarkedSourcesChange={handleMarkedSourcesChange}

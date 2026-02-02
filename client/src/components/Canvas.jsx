@@ -409,7 +409,7 @@ const ConnectionLayerWrapper = memo(({ isPanning, hideArrowsWhilePanning, ...pro
     return <ConnectionLayer isPanning={isPanning} hideArrowsWhilePanning={hideArrowsWhilePanning} {...props} />;
 });
 
-const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connectionHistoryVersion, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onSaveVersion, onSelectVersion, onUpdateDimensions, onContextMenu }) => {
+const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connectionHistoryVersion, onFlagClick, onClone, onDelete, onDateClick, onToggleExpand, onExpandAll, onCollapseAll, isSelected, onMouseDown, dragOffset, registerRef, backdropToggleMode, backdropMouseDown, onToggleBackdrop, onUpdateData, onUpdateDimensions, onContextMenu }) => {
     const cardRef = useRef(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState('');
@@ -607,6 +607,46 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connec
 
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <button
+                        title="Expand All"
+                        onMouseDown={(e) => { e.stopPropagation(); }}
+                        onClick={(e) => { e.stopPropagation(); onExpandAll && onExpandAll(doc._id); }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                    >
+                        <span style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>&gt;</span>
+                    </button>
+                    <button
+                        title="Collapse All"
+                        onMouseDown={(e) => { e.stopPropagation(); }}
+                        onClick={(e) => { e.stopPropagation(); onCollapseAll && onCollapseAll(doc._id); }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                    >
+                        <span style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>v</span>
+                    </button>
+                    <button
                         title="Toggle Backdrop"
                         onMouseDown={toggleBackdropHandler.onMouseDown}
                         onClick={toggleBackdropHandler.onClick}
@@ -627,26 +667,28 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connec
                     >
                         <span style={{ fontSize: '0.9rem' }}>👁</span>
                     </button>
-                    <button
-                        title="Edit"
-                        onMouseDown={editHandler.onMouseDown}
-                        onClick={editHandler.onClick}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#94a3b8',
-                            cursor: 'pointer',
-                            padding: '2px',
-                            borderRadius: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
-                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
-                    >
-                        <span style={{ fontSize: '0.9rem' }}>📝</span>
-                    </button>
+                    {doc.collection === 'Custom' && (
+                        <button
+                            title="Edit"
+                            onMouseDown={editHandler.onMouseDown}
+                            onClick={editHandler.onClick}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
+                            onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                        >
+                            <span style={{ fontSize: '0.9rem' }}>📝</span>
+                        </button>
+                    )}
                     <button
                         title="Clone"
                         onMouseDown={cloneHandler.onMouseDown}
@@ -690,40 +732,6 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connec
                 </div>
             </div>
 
-            {doc.versions && doc.versions.length > 1 && !isEditing && (
-                <div style={{
-                    display: 'flex',
-                    background: 'rgba(0,0,0,0.2)',
-                    borderBottom: '1px solid rgba(255,255,255,0.05)',
-                    overflowX: 'auto'
-                }}>
-                    {doc.versions.map((_, idx) => {
-                        const isActive = (doc.activeVersionIndex ?? (doc.versions.length - 1)) === idx;
-                        return (
-                            <button
-                                key={idx}
-                                onMouseDown={(e) => e.stopPropagation()} // Prevent drag
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onSelectVersion && onSelectVersion(doc._id, idx);
-                                }}
-                                style={{
-                                    background: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
-                                    border: 'none',
-                                    color: isActive ? 'var(--primary)' : '#94a3b8',
-                                    padding: '4px 8px',
-                                    fontSize: '0.75rem',
-                                    cursor: 'pointer',
-                                    borderRight: '1px solid rgba(255,255,255,0.05)',
-                                    whiteSpace: 'nowrap'
-                                }}
-                            >
-                                {idx === 0 ? 'Original' : `v${idx}`}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
             <div style={{ flex: 1 }} onMouseDown={(e) => isEditing && e.stopPropagation()}>
                 {isEditing ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', height: '100%' }}>
@@ -768,12 +776,7 @@ const DraggableCard = React.memo(({ doc, zoom, onConnect, onQuickConnect, connec
                                     e.stopPropagation();
                                     try {
                                         const parsed = JSON.parse(editData);
-                                        // onUpdateData && onUpdateData(doc._id, parsed); 
-                                        if (onSaveVersion) {
-                                            onSaveVersion(doc._id, parsed);
-                                        } else if (onUpdateData) {
-                                            onUpdateData(doc._id, parsed);
-                                        }
+                                        onUpdateData && onUpdateData(doc._id, parsed);
                                         setIsEditing(false);
                                     } catch (err) {
                                         alert("Invalid JSON: " + err.message);
@@ -1682,6 +1685,8 @@ const Canvas = ({
     onUpdateDiffNode,
     onDeleteDiffNode,
     onToggleExpand,
+    onExpandAll,
+    onCollapseAll,
     markedSources = new Set(),
     onMarkedSourcesChange,
     highlightedFields = new Set(),
@@ -1696,8 +1701,6 @@ const Canvas = ({
     onShowAllArrowsChange,
     onToggleBackdrop,
     onUpdateData,
-    onSaveVersion,
-    onSelectVersion,
     onAddCustomDocument,
     idColorOverrides = {},
     onIdColorChange,
@@ -2530,6 +2533,8 @@ const Canvas = ({
                                     }}
                                     onDateClick={handleDateClick}
                                     onToggleExpand={onToggleExpand}
+                                    onExpandAll={onExpandAll}
+                                    onCollapseAll={onCollapseAll}
                                     isSelected={isSelected || boxSelectPreviewIds.includes(doc._id)}
                                     onMouseDown={handleCardMouseDown}
                                     registerRef={(id, el) => {
@@ -2543,8 +2548,6 @@ const Canvas = ({
                                     backdropMouseDown={backdropMouseDown}
                                     onToggleBackdrop={onToggleBackdrop}
                                     onUpdateData={onUpdateData}
-                                    onSaveVersion={onSaveVersion}
-                                    onSelectVersion={onSelectVersion}
                                     onUpdateDimensions={onUpdateDimensions}
                                     onContextMenu={handleNodeContextMenu}
                                 />
