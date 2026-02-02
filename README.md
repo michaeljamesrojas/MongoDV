@@ -45,13 +45,67 @@ MongoDV isn't just a database GUI; it's a workspace for investigation. Tradition
 
 ---
 
+## 🏁 Getting Started
+
+### 1. Connection
+Paste your MongoDB connection string (e.g., `mongodb://localhost:27017` or an Atlas URI). MongoDV automatically discovers your databases and collections.
+
+### 2. Start Your Investigation
+There are two ways to begin a "case":
+- **Sidebar Exploration**: Select a database and collection from the sidebar. Use the **Query Builder** to find specific data, then click the **⇱** icon on any document to send it to the infinite canvas.
+- **Direct Canvas Connection**: Click the **+** icon in the Canvas HUD to open the Query Builder and pull data directly onto the board.
+
+### 3. Follow the Thread
+Once a document is on the canvas, look for `ObjectId` fields. 
+- **The ID Text**: Click any ID string (underlined) to open the **Connect Modal**. This lets you manually choose which collection that ID belongs to.
+- **Quick Connect (⚡)**: Click the **⚡** icon to instantly fetch and connect that document using automatic prediction.
+- **Memory (🚀)**: Once connected, the icon turns into **🚀**, remembering the relationship for one-click access next time.
+- **Randomize (👁)**: Click the eye icon next to an ID to change its visual color across the entire board.
+
+---
+
+## 🏗️ Investigation Workflow
+
+1.  **Seed the Board**: Use the Query Builder to bring in your starting documents (e.g., a specific `User` or `Order`).
+2.  **Follow Connections**: Click the `⚡` icons on related IDs to build a visual graph of the data.
+3.  **Analyze**:
+    *   **Compare**: Use [Diff Nodes](#-spot-the-difference) to see changes between documents.
+    *   **Timeline**: Use [Time Gaps](#-mind-the-gap) to see the duration between events.
+4.  **Organize**: Use the right-click menu to align cards, highlight critical fields, or backdrop (dim) irrelevant data.
+5.  **Save Case**: Use the HUD to save your canvas state or export it for later review.
+
+---
+
+## 🎮 Heads-Up Display (HUD) Reference
+
+The canvas HUD (bottom-right) provides quick access to essential tools:
+
+| Icon | Tool | Action |
+| :--- | :--- | :--- |
+| ↩️ / ↪️ | **Undo/Redo** | Reverse or re-apply canvas actions (`Ctrl+Z` / `Ctrl+Shift+Z`) |
+| `-` / `+` | **Zoom** | Adjust the view scale (10% to 500%) |
+| **+** (Yellow) | **New Query** | Open the Query Builder to add more documents to the canvas |
+| ⇄ | **Switch Direction** | Toggle arrow directions between forward (ref -> def) and reverse |
+| 👁️ | **Focus Toggle** | Show or hide arrows connected to "backdropped" (dimmed) items |
+| ⤡ / ✕ | **Arrows Toggle** | Quickly show or hide all connection arrows |
+| 🚀 / 🐢 | **Turbo Mode** | Toggle "Hide arrows while panning" for smoother performance on large boards |
+| `Reset` | **Reset View** | Snap the canvas back to (0,0) at 100% zoom |
+| 📁 | **Active Save** | Shows the name of your current saved session |
+| 💾 | **Quick Save** | Instantly save changes to the current named session |
+| ➕ | **Save As** | Create a new named save state in browser storage |
+| 📂 | **Load** | Switch between saved investigation states |
+| 📤 / 📥 | **Export/Import** | Save your board as a JSON file or load an external case |
+
+---
+
 ## ✨ Killer Features
 <br/>
 
-### 🕵️ The Investigation Board
-**Drag. Drop. Connect.** 
-An infinite canvas where your data lives. Freeform organization for those who think in graphs, not lists.
-![Canvas](assets/mongodv%20sample%200.png)
+### ⚡ Quick Connect
+**The most powerful tool in your kit.**
+- **Manual**: Click any **underlined ObjectId** to open the Connect Modal. Choose your target collection and query for the data.
+- **Fast**: Click the **⚡** icon to instantly fetch and connect that document using automatic prediction.
+- **Persistent**: Once connected, the icon upgrades to **🚀**. It remembers which database and collection that ID belongs to, so next time it's one click to pull up the related data.
 
 <br/>
 
@@ -67,13 +121,6 @@ Click any date field in one document, then click another date field to create a 
 
 <br/>
 
-### ⚡ Quick Connect
-**Follow the thread.**
-Spot a cryptic `ObjectId`? Click the **⚡** icon to instantly fetch and connect that document.
-> *Memory*: Once connected, the icon upgrades to **🚀**. It remembers which database and collection that ID belongs to, so next time it's one click to pull up the related data.
-
-<br/>
-
 ### ⏪ Undo/Redo
 Full history tracking. `Ctrl+Z` your way back to clarity.
 
@@ -81,7 +128,7 @@ Full history tracking. `Ctrl+Z` your way back to clarity.
 
 ### 💾 Session Saver
 **Don't lose your context.**
-Save your investigation state to browser local storage with one click. Need to share or backup? Export to a JSON file and load it back anytime, even offline.
+Save your investigation state to browser local storage with one click or export to a JSON file.
 
 <br/>
 
@@ -116,7 +163,7 @@ Built with a focus on performance and developer experience:
 -   **Database**: MongoDB (Native Driver)
 -   **Orchestration**: Concurrently
 
-## 🚀 Getting Started
+## 🚀 Getting Started (Installation)
 
 ### Prerequisites
 -   Node.js (v20+)
@@ -137,11 +184,6 @@ npm start
 ```
 
 Open [http://localhost:5173](http://localhost:5173) to start your investigation.
-
-### Connecting to MongoDB
-Paste your MongoDB connection string (e.g., `mongodb://localhost:27017` or a MongoDB Atlas URI). That's it—no config files needed.
-
-![Initial connection screen](assets/home%20page.png)
 
 ---
 
