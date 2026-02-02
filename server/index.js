@@ -9,14 +9,35 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Helper to close client connection
+// Connection Pool
+const clients = new Map();
+
+// Helper to get or create client connection
 const withClient = async (uri, operation) => {
-    const client = new MongoClient(uri);
+    let client = clients.get(uri);
+
+    if (!client) {
+        try {
+            client = new MongoClient(uri);
+            await client.connect();
+            clients.set(uri, client);
+            console.log(`New connection established for ${uri.split('@').pop()}`); // Log safe part of URI
+        } catch (error) {
+            console.error('Failed to create new connection:', error);
+            throw error;
+        }
+    }
+
     try {
-        await client.connect();
         return await operation(client);
-    } finally {
-        await client.close();
+    } catch (error) {
+        // If the operation fails (e.g., topology closed), we might need to invalidate the pool
+        if (error.message.includes('Topology is closed') || error.message.includes('Client must be connected')) {
+            console.log('Connection appears broken, removing from pool');
+            try { await client.close(); } catch (e) { }
+            clients.delete(uri);
+        }
+        throw error;
     }
 };
 
@@ -27,8 +48,8 @@ app.post('/api/connect', async (req, res) => {
     }
 
     try {
+        // Force a fresh connection check or ping
         await withClient(uri, async (client) => {
-            // Just ping to verify connection
             await client.db("admin").command({ ping: 1 });
         });
         res.json({ success: true, message: 'Connected successfully' });
@@ -184,6 +205,7 @@ app.post('/api/documents', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+// Bind to localhost only
+app.listen(port, '127.0.0.1', () => {
+    console.log(`Server running on port ${port} (Localhost Only)`);
 });
