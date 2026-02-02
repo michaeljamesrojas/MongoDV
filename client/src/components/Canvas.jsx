@@ -3602,6 +3602,14 @@ const Canvas = ({
                 >
                     📥
                 </button>
+                <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
+                <button
+                    onClick={() => onExport(true)} // Pass true to indicate HTML export preference
+                    title="Export as HTML (Viewer)"
+                    style={{ background: 'transparent', border: 'none', color: '#f472b6', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                    🌏
+                </button>
             </div>
         </div >
     );

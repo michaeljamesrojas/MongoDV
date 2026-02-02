@@ -1,22 +1,24 @@
 import React, { useState, useEffect } from 'react';
 
-const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], onDelete }) => {
+const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], onDelete, defaultFormat = 'json' }) => {
     const [name, setName] = useState('');
     const [selectedSave, setSelectedSave] = useState(null);
+    const [exportFormat, setExportFormat] = useState('json'); // 'json' or 'html'
 
     useEffect(() => {
         if (isOpen) {
             setName('');
             setSelectedSave(null);
+            setExportFormat(defaultFormat);
         }
-    }, [isOpen]);
+    }, [isOpen, defaultFormat]);
 
     if (!isOpen) return null;
 
     const handleSubmit = (e) => {
         e.preventDefault();
         if ((mode === 'save' || mode === 'export') && name.trim()) {
-            onConfirm(name.trim());
+            onConfirm(name.trim(), exportFormat);
         } else if (mode === 'load' && selectedSave) {
             onConfirm(selectedSave);
         }
@@ -73,7 +75,7 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    placeholder={mode === 'export' ? "mongoDV-export" : "e.g. Project Alpha"}
+                                    placeholder={mode === 'export' ? (exportFormat === 'html' ? "investigation" : "mongoDV-export") : "e.g. Project Alpha"}
                                     autoFocus
                                     style={{
                                         width: '100%',
@@ -87,6 +89,39 @@ const SaveLoadModal = ({ isOpen, onClose, mode, onConfirm, existingSaves = [], o
                                     }}
                                 />
                             </div>
+
+                            {mode === 'export' && (
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontSize: '0.9rem' }}>Format</label>
+                                    <div style={{ display: 'flex', gap: '1rem' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: '#e2e8f0' }}>
+                                            <input
+                                                type="radio"
+                                                name="exportFormat"
+                                                value="json"
+                                                checked={exportFormat === 'json'}
+                                                onChange={() => setExportFormat('json')}
+                                            />
+                                            JSON (Data Only)
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: '#e2e8f0' }}>
+                                            <input
+                                                type="radio"
+                                                name="exportFormat"
+                                                value="html"
+                                                checked={exportFormat === 'html'}
+                                                onChange={() => setExportFormat('html')}
+                                            />
+                                            HTML (Standalone Viewer)
+                                        </label>
+                                    </div>
+                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                                        {exportFormat === 'json'
+                                            ? "Standard JSON export. Cannot be opened directly in browser."
+                                            : "Compass-independent single file. Can be shared and opened offline."}
+                                    </div>
+                                </div>
+                            )}
 
                             {existingSaves.length > 0 && (
                                 <div>

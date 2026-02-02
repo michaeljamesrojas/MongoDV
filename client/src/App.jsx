@@ -40,10 +40,11 @@ function App() {
   const [arrowDirection, setArrowDirection] = useState('forward'); // 'forward' | 'reverse'
   const [showBackdroppedArrows, setShowBackdroppedArrows] = useState(true);
   const [showAllArrows, setShowAllArrows] = useState(true);
-  const [showCanvas, setShowCanvas] = useState(false);
+  const [showCanvas, setShowCanvas] = useState(!!window.INITIAL_DATA);
   const [connectModalState, setConnectModalState] = useState({ isOpen: false, sourceId: null });
   const [saveLoadModalState, setSaveLoadModalState] = useState({ isOpen: false, mode: 'save', savedList: [] });
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  // Initialize from baked data to avoid flash of connection screen
+  const [isOfflineMode, setIsOfflineMode] = useState(!!window.INITIAL_DATA);
   const [currentSaveName, setCurrentSaveName] = useState(null); // Track which save is currently loaded
   const [idColorOverrides, setIdColorOverrides] = useState({}); // { [id]: variationIndex }
   const [selectedIds, setSelectedIds] = useState([]); // Lifted state from Canvas
@@ -51,6 +52,12 @@ function App() {
   const { showToast } = useToast();
   // History Logic
   const history = useHistory.default ? useHistory.default() : useHistory(); // Handle potential default import issues if any
+
+  // Dependency for useEffect (defined later)
+  // We need to move the Effect to be AFTER the definition of restoreCanvasSnapshot usually,
+  // or rely on hoisting if we weren't using const/useCallback.
+  // Since we are using useCallback, we should move the Effect down.
+  // I will delete this block and re-insert it further down.
 
   // Helper: Create a snapshot of the current canvas state
   const getCanvasSnapshot = useCallback((includeView = false) => {
@@ -127,7 +134,46 @@ function App() {
     }
   }, [history, getCanvasSnapshot, restoreCanvasSnapshot, showToast]);
 
-  // Keyboard Shortcuts for Undo/Redo
+
+  // Viewer Mode / Export Support
+  React.useEffect(() => {
+    // 1. Check for baked-in data (Single File Export)
+    if (window.INITIAL_DATA) {
+      console.log("Found INITIAL_DATA, restoring...", window.INITIAL_DATA);
+      setIsOfflineMode(true);
+      setShowCanvas(true);
+      restoreCanvasSnapshot(window.INITIAL_DATA, true);
+      showToast('Restored investigation from file', 'success', 3000);
+      return;
+    }
+
+    // 2. Check for URL Query Parameter (Hosted Viewer Mode)
+    // Supports ?data=URL or ?file=URL
+    const params = new URLSearchParams(window.location.search);
+    const dataUrl = params.get('data') || params.get('file');
+
+    if (dataUrl) {
+      console.log("Found data URL:", dataUrl);
+      showToast('Loading investigation from URL...', 'info');
+
+      fetch(dataUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+          return res.json();
+        })
+        .then(data => {
+          setIsOfflineMode(true);
+          setShowCanvas(true);
+          restoreCanvasSnapshot(data, true);
+          showToast('Loaded successfully', 'success', 3000);
+        })
+        .catch(err => {
+          console.error("Failed to load remote data:", err);
+          showToast(`Failed to load: ${err.message}`, 'error', 5000);
+        });
+    }
+  }, [restoreCanvasSnapshot, showToast]);
+
   React.useEffect(() => {
     const handleKeyDown = (e) => {
       // Check for Ctrl+Z or Cmd+Z
@@ -1020,9 +1066,17 @@ function App() {
     };
   };
 
-  const handleExport = async () => {
+  const handleExport = async (preferHtml = false) => {
+    // Determine if HTML is strictly requested (argument is boolean true)
+    // because onClick events pass an Event object which is truthy.
+    const isHtmlRequested = preferHtml === true;
+
     // Feature Check: File System Access API (Browser Native Save Dialog)
-    if ('showSaveFilePicker' in window) {
+    if ('showSaveFilePicker' in window && !isHtmlRequested) {
+      // Logic for Native Picker (JSON only for now to keep it simple, or we could support HTML here too)
+      // Since user clicked specific HTML button, we might want to skip native picker 
+      // OR update native picker to default to HTML types. 
+      // For now, if preferHtml is true, let's fall back to the Modal because the Modal explains what HTML export is.
       try {
         const exportData = getExportData();
         const data = JSON.stringify(exportData, null, 2);
@@ -1050,28 +1104,76 @@ function App() {
       }
     } else {
       // Fallback: Open modal to ask for filename (Method 2)
-      setSaveLoadModalState({ isOpen: true, mode: 'export', savedList: [] });
+      // Also used if preferHtml is true (to show the options/explanation)
+      setSaveLoadModalState({
+        isOpen: true,
+        mode: 'export',
+        savedList: [],
+        defaultFormat: isHtmlRequested ? 'html' : 'json'
+      });
     }
   };
 
-  const handleConfirmExport = (name) => {
+  const handleConfirmExport = async (name, format = 'json') => {
     try {
       const exportData = getExportData();
-      const data = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      // Ensure .json extension
-      const fileName = name.endsWith('.json') ? name : `${name}.json`;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+
+      if (format === 'html') {
+        showToast('Generating HTML details...', 'info', 2000);
+        try {
+          // 1. Fetch the viewer template
+          const response = await fetch('/viewer.html');
+          if (!response.ok) throw new Error("Viewer template not found. Please run 'npm run build:viewer' first.");
+          let htmlContent = await response.text();
+
+          // 2. Inject Data
+          // We inject it as a script tag before the closing body or head
+          const dataScript = `<script>window.INITIAL_DATA = ${JSON.stringify(exportData)};</script>`;
+
+          // Simple injection: replaced <head> means we put it at start of head, 
+          // but let's try to put it before the first script or just appended to head.
+          if (htmlContent.includes('<head>')) {
+            htmlContent = htmlContent.replace('<head>', `<head>${dataScript}`);
+          } else {
+            htmlContent = `${dataScript}${htmlContent}`;
+          }
+
+          // 3. Create Blob
+          const blob = new Blob([htmlContent], { type: 'text/html' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          const fileName = name.endsWith('.html') ? name : `${name}.html`;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+
+          showToast('HTML Export successful', 'success', 2000);
+        } catch (err) {
+          console.error("HTML Export failed:", err);
+          showToast(`HTML Export failed: ${err.message}`, 'error', 4000);
+        }
+      } else {
+        // JSON Export
+        const data = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        // Ensure .json extension
+        const fileName = name.endsWith('.json') ? name : `${name}.json`;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showToast('JSON Export successful', 'success', 2000);
+      }
 
       setSaveLoadModalState(prev => ({ ...prev, isOpen: false }));
-      showToast('Exported successfully', 'success', 2000);
     } catch (err) {
       console.error("Export failed:", err);
       showToast('Export failed', 'error');
@@ -1128,24 +1230,26 @@ function App() {
         <div style={{ fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={isOfflineMode ? 'Offline Mode' : uri}>
           {isOfflineMode ? 'Offline Mode' : uri.replace(/\/\/([^:]+:[^@]+@)?/, '//***@')}
         </div>
-        <button
-          onClick={() => {
-            setIsConnected(false);
-            setIsOfflineMode(false);
-          }}
-          style={{
-            marginTop: '0.5rem',
-            background: 'transparent',
-            border: '1px solid var(--glass-border)',
-            color: '#94a3b8',
-            padding: '0.25rem 0.5rem',
-            borderRadius: '4px',
-            fontSize: '0.8rem',
-            cursor: 'pointer'
-          }}
-        >
-          {isOfflineMode ? 'Connect to DB' : 'Disconnect'}
-        </button>
+        {!isOfflineMode && (
+          <button
+            onClick={() => {
+              setIsConnected(false);
+              setIsOfflineMode(false);
+            }}
+            style={{
+              marginTop: '0.5rem',
+              background: 'transparent',
+              border: '1px solid var(--glass-border)',
+              color: '#94a3b8',
+              padding: '0.25rem 0.5rem',
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              cursor: 'pointer'
+            }}
+          >
+            {isOfflineMode ? 'Connect to DB' : 'Disconnect'}
+          </button>
+        )}
       </div>
 
 
@@ -1180,98 +1284,110 @@ function App() {
           </button>
         </div>
 
-        <h3 style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '1rem' }}>DATABASES</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {databases.map((db) => (
-            <div key={db.name}>
-              <div style={{
-                padding: '0.75rem',
-                background: expandedDb === db.name ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-                borderRadius: '6px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                border: expandedDb === db.name ? '1px solid var(--primary)' : '1px solid transparent'
-              }}
-                onClick={() => handleDbClick(db.name)}
-                onMouseEnter={(e) => {
-                  if (expandedDb !== db.name) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
-                }}
-                onMouseLeave={(e) => {
-                  if (expandedDb !== db.name) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
-                }}
-              >
-                <span style={{ fontWeight: 500 }}>{db.name}</span>
-                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{(db.sizeOnDisk / 1024 / 1024).toFixed(0)} MB</span>
-              </div>
+        {isOfflineMode ? (
+          <div style={{ padding: '1rem', color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🧊</div>
+            <div>Offline Mode</div>
+            <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', opacity: 0.7 }}>
+              Database connection is disabled in the exported viewer.
+            </div>
+          </div>
+        ) : (
+          <>
+            <h3 style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '1rem' }}>DATABASES</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {databases.map((db) => (
+                <div key={db.name}>
+                  <div style={{
+                    padding: '0.75rem',
+                    background: expandedDb === db.name ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    border: expandedDb === db.name ? '1px solid var(--primary)' : '1px solid transparent'
+                  }}
+                    onClick={() => handleDbClick(db.name)}
+                    onMouseEnter={(e) => {
+                      if (expandedDb !== db.name) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (expandedDb !== db.name) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+                    }}
+                  >
+                    <span style={{ fontWeight: 500 }}>{db.name}</span>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{(db.sizeOnDisk / 1024 / 1024).toFixed(0)} MB</span>
+                  </div>
 
-              {expandedDb === db.name && (
-                <div style={{
-                  marginLeft: '1rem',
-                  paddingLeft: '1rem',
-                  borderLeft: '1px solid var(--glass-border)',
-                  marginTop: '0.5rem',
-                  marginBottom: '0.5rem'
-                }}>
-                  {collections[db.name] ? (
-                    <>
-                      <input
-                        type="text"
-                        placeholder="Search collections..."
-                        value={collectionSearchTerm}
-                        onChange={(e) => setCollectionSearchTerm(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          width: '100%',
-                          padding: '0.5rem',
-                          marginBottom: '0.5rem',
-                          background: 'rgba(0,0,0,0.2)',
-                          border: '1px solid var(--glass-border)',
-                          borderRadius: '4px',
-                          color: '#e2e8f0',
-                          fontSize: '0.8rem',
-                          outline: 'none'
-                        }}
-                      />
-                      {getFilteredCollections(db.name).map(col => (
-                        <div key={col.name} style={{
-                          padding: '0.5rem',
-                          fontSize: '0.9rem',
-                          color: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'var(--primary)' : '#cbd5e1',
-                          cursor: 'pointer',
-                          borderRadius: '4px',
-                          background: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'rgba(96, 165, 250, 0.1)' : 'transparent',
-                          fontWeight: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 500 : 400
-                        }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCollectionClick(db.name, col.name);
-                          }}
-                          onMouseEnter={(e) => {
-                            if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
-                              e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
-                          }}
-                          onMouseLeave={(e) => {
-                            if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
-                              e.currentTarget.style.background = 'transparent'
-                          }}
-                        >
-                          📄 {col.name}
+                  {expandedDb === db.name && (
+                    <div style={{
+                      marginLeft: '1rem',
+                      paddingLeft: '1rem',
+                      borderLeft: '1px solid var(--glass-border)',
+                      marginTop: '0.5rem',
+                      marginBottom: '0.5rem'
+                    }}>
+                      {collections[db.name] ? (
+                        <>
+                          <input
+                            type="text"
+                            placeholder="Search collections..."
+                            value={collectionSearchTerm}
+                            onChange={(e) => setCollectionSearchTerm(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                              marginBottom: '0.5rem',
+                              background: 'rgba(0,0,0,0.2)',
+                              border: '1px solid var(--glass-border)',
+                              borderRadius: '4px',
+                              color: '#e2e8f0',
+                              fontSize: '0.8rem',
+                              outline: 'none'
+                            }}
+                          />
+                          {getFilteredCollections(db.name).map(col => (
+                            <div key={col.name} style={{
+                              padding: '0.5rem',
+                              fontSize: '0.9rem',
+                              color: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'var(--primary)' : '#cbd5e1',
+                              cursor: 'pointer',
+                              borderRadius: '4px',
+                              background: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 'rgba(96, 165, 250, 0.1)' : 'transparent',
+                              fontWeight: selectedCollection?.col === col.name && selectedCollection?.db === db.name ? 500 : 400
+                            }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCollectionClick(db.name, col.name);
+                              }}
+                              onMouseEnter={(e) => {
+                                if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
+                                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                              }}
+                              onMouseLeave={(e) => {
+                                if (selectedCollection?.col !== col.name || selectedCollection?.db !== db.name)
+                                  e.currentTarget.style.background = 'transparent'
+                              }}
+                            >
+                              📄 {col.name}
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <div style={{ padding: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
+                          Loading collections...
                         </div>
-                      ))}
-                    </>
-                  ) : (
-                    <div style={{ padding: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
-                      Loading collections...
+                      )}
                     </div>
                   )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1395,10 +1511,10 @@ function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex' }}>
-      {isConnected ? (
+      {isConnected || isOfflineMode ? (
         <>
           <Sidebar />
-          <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {showCanvas ? (
               <Canvas
                 selectedIds={selectedIds}
@@ -1610,10 +1726,11 @@ function App() {
         onClose={() => setSaveLoadModalState(prev => ({ ...prev, isOpen: false }))}
         mode={saveLoadModalState.mode}
         existingSaves={saveLoadModalState.savedList}
+        defaultFormat={saveLoadModalState.defaultFormat}
         onConfirm={
           saveLoadModalState.mode === 'save' ? handleConfirmSave :
-            saveLoadModalState.mode === 'export' ? handleConfirmExport :
-              handleConfirmLoad
+            saveLoadModalState.mode === 'load' ? handleConfirmLoad :
+              handleConfirmExport
         }
         onDelete={handleDeleteSave}
       />
