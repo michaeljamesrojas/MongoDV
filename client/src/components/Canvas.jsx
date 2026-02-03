@@ -1855,6 +1855,88 @@ const Canvas = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedIds, onDeleteMany, backdropToggleMode]);
 
+    // Paste listener (images -> image node)
+    useEffect(() => {
+        const handlePaste = async (e) => {
+            if (!onAddImageNode) return;
+
+            const target = e.target;
+            const isEditableTarget = target && (
+                target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable
+            );
+            if (isEditableTarget) return;
+
+            const items = e.clipboardData?.items;
+            if (!items || items.length === 0) return;
+
+            const imageItem = Array.from(items).find(item => item.type && item.type.startsWith('image/'));
+            if (!imageItem) return;
+
+            const blob = imageItem.getAsFile();
+            if (!blob) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Compress similarly to upload flow
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    const maxDim = 1024;
+
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    const originalSizeMB = (blob.size / 1024 / 1024).toFixed(2);
+                    const compressedSizeMB = (compressedDataUrl.length * 0.75 / 1024 / 1024).toFixed(2);
+
+                    const rect = canvasRef.current?.getBoundingClientRect();
+                    const { pan, zoom } = viewStateRef.current;
+                    const centerX = rect ? rect.width / 2 : window.innerWidth / 2;
+                    const centerY = rect ? rect.height / 2 : window.innerHeight / 2;
+                    const x = (centerX - pan.x) / zoom;
+                    const y = (centerY - pan.y) / zoom;
+
+                    const baseWidth = 300;
+                    const baseHeight = Math.round(baseWidth * (height / width));
+
+                    onAddImageNode({
+                        id: `image-${Date.now()}`,
+                        x,
+                        y,
+                        src: compressedDataUrl,
+                        width: baseWidth,
+                        height: baseHeight,
+                        dimmed: false,
+                        originalSize: originalSizeMB,
+                        compressedSize: compressedSizeMB
+                    });
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(blob);
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [onAddImageNode]);
+
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
 
@@ -2302,17 +2384,24 @@ const Canvas = ({
                         modelX = textNode.x;
                         modelY = textNode.y;
                     } else {
-                        // Diff Node?
-                        const diffNode = diffNodes.find(n => n.id === selId);
-                        if (diffNode) {
-                            modelX = diffNode.x;
-                            modelY = diffNode.y;
+                        // Image Node?
+                        const imageNode = imageNodes.find(n => n.id === selId);
+                        if (imageNode) {
+                            modelX = imageNode.x;
+                            modelY = imageNode.y;
                         } else {
-                            // Document?
-                            const doc = documents.find(d => d._id === selId);
-                            if (doc) {
-                                modelX = doc.x;
-                                modelY = doc.y;
+                            // Diff Node?
+                            const diffNode = diffNodes.find(n => n.id === selId);
+                            if (diffNode) {
+                                modelX = diffNode.x;
+                                modelY = diffNode.y;
+                            } else {
+                                // Document?
+                                const doc = documents.find(d => d._id === selId);
+                                if (doc) {
+                                    modelX = doc.x;
+                                    modelY = doc.y;
+                                }
                             }
                         }
                     }
