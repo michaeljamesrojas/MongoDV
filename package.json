@@ -6,7 +6,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "client": "npm run dev --prefix client",
     "server": "npm run dev --prefix server",
-    "start": "concurrently \"npm run server\" \"npm run client\""
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "start": "concurrently \"npm run server\" \"npm run build:watch --prefix client\" \"npm run preview --prefix client\""
   },
   "keywords": [],
   "author": "",

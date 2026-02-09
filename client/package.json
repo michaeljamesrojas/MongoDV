@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:watch": "vite build --watch",
     "build:viewer": "vite build --config vite.viewer.config.js && mv public/index.html public/viewer.html",
     "lint": "eslint .",
     "preview": "vite preview"
