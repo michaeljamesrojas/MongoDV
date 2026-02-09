@@ -386,6 +386,17 @@ function App() {
     setTextNodes(prev => prev.map(n => n.id === id ? { ...n, text } : n));
   }, [saveHistoryPoint]);
 
+  const handleUpdateTextNodeSize = useCallback((id, updates) => {
+    const node = textNodes.find(n => n.id === id);
+    if (!node) return;
+    const nextWidth = updates?.width ?? node.width;
+    const nextHeight = updates?.height ?? node.height;
+    if (nextWidth === node.width && nextHeight === node.height) return;
+
+    saveHistoryPoint();
+    setTextNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+  }, [textNodes, saveHistoryPoint]);
+
   const handleUpdateTextNodePosition = useCallback((id, x, y) => {
     // Check for change
     const node = textNodes.find(n => n.id === id);
@@ -1532,6 +1543,7 @@ function App() {
                 onDeleteGapNode={handleDeleteGapNode}
                 onAddTextNode={handleAddTextNode}
                 onUpdateTextNode={handleUpdateTextNode}
+                onUpdateTextNodeSize={handleUpdateTextNodeSize}
                 onUpdateTextNodePosition={handleUpdateTextNodePosition}
                 onDeleteTextNode={handleDeleteTextNode}
                 imageNodes={imageNodes}

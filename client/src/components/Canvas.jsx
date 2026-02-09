@@ -1270,7 +1270,7 @@ const DraggableDiffNode = memo(({ node, sourceDoc, targetDoc, zoom, onDelete, is
     );
 });
 
-const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpdateText, isSelected, onMouseDown, registerRef, onContextMenu }) => {
+const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpdateText, onUpdateSize, isSelected, onMouseDown, registerRef, onContextMenu }) => {
     const nodeRef = useRef(null);
     const [isEditing, setIsEditing] = useState(false);
     const [text, setText] = useState(node.text);
@@ -1293,6 +1293,63 @@ const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpda
             return () => registerRef(node.id, null);
         }
     }, [node.id, registerRef]);
+
+    useEffect(() => {
+        if (!nodeRef.current || !onUpdateSize) return;
+
+        // Apply initial dimensions if they exist
+        if (node.width) {
+            nodeRef.current.style.width = `${node.width}px`;
+        }
+        if (node.height) {
+            nodeRef.current.style.height = `${node.height}px`;
+        }
+
+        let timeout;
+        const debouncedUpdate = (w, h) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                onUpdateSize(node.id, { width: w, height: h });
+            }, 300);
+        };
+
+        const ro = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const target = entry.target;
+                const hasInlineWidth = target.style.width !== "";
+                const hasInlineHeight = target.style.height !== "";
+
+                const actualWidth = target.offsetWidth;
+                const actualHeight = target.offsetHeight;
+
+                const currentWidth = node.width;
+                const currentHeight = node.height;
+
+                let shouldUpdate = false;
+                let updateWidth = currentWidth;
+                let updateHeight = currentHeight;
+
+                if (hasInlineWidth && Math.abs(actualWidth - (currentWidth || 0)) > 3) {
+                    shouldUpdate = true;
+                    updateWidth = actualWidth;
+                }
+                if (hasInlineHeight && Math.abs(actualHeight - (currentHeight || 0)) > 3) {
+                    shouldUpdate = true;
+                    updateHeight = actualHeight;
+                }
+
+                if (shouldUpdate) {
+                    debouncedUpdate(updateWidth, updateHeight);
+                }
+            }
+        });
+
+        ro.observe(nodeRef.current);
+        return () => {
+            ro.disconnect();
+            clearTimeout(timeout);
+        };
+    }, [node.id, node.width, node.height, onUpdateSize]);
 
     useEffect(() => {
         if (isEditing && textareaRef.current) {
@@ -1358,12 +1415,16 @@ const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpda
                 boxShadow: isSelected ? '0 0 0 2px rgba(96, 165, 250, 0.2), 0 8px 16px rgba(0,0,0,0.4)' : '0 4px 6px rgba(0,0,0,0.2)',
                 marginBottom: '8px',
                 userSelect: isEditing ? 'text' : 'none',
-                minWidth: '100px',
-                maxWidth: '400px',
+                minWidth: '120px',
+                minHeight: '60px',
+                width: node.width,
+                height: node.height,
                 display: 'flex',
                 transition: 'box-shadow 0.2s, border 0.2s, opacity 0.2s, filter 0.2s',
                 opacity: node.dimmed ? 0.5 : 1,
-                filter: node.dimmed ? 'blur(0.5px)' : 'none'
+                filter: node.dimmed ? 'blur(0.5px)' : 'none',
+                resize: 'both',
+                overflow: 'auto'
             }}
             data-centered="true"
         >
@@ -1381,10 +1442,12 @@ const DraggableTextNode = memo(({ node, zoom, onUpdatePosition, onDelete, onUpda
                         color: 'white',
                         fontFamily: 'inherit',
                         fontSize: 'inherit',
-                        resize: 'both',
+                        resize: 'none',
                         outline: 'none',
-                        minWidth: '150px',
-                        minHeight: '60px',
+                        width: '100%',
+                        height: '100%',
+                        minWidth: '100%',
+                        minHeight: '100%',
                         overflow: 'auto'
                     }}
                 />
@@ -1672,6 +1735,7 @@ const Canvas = ({
     onDeleteGapNode,
     onAddTextNode,
     onUpdateTextNode,
+    onUpdateTextNodeSize,
     onUpdateTextNodePosition,
     onDeleteTextNode,
     imageNodes = [],
@@ -1855,11 +1919,9 @@ const Canvas = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedIds, onDeleteMany, backdropToggleMode]);
 
-    // Paste listener (images -> image node)
+    // Paste listener (images -> image node, text -> text node)
     useEffect(() => {
         const handlePaste = async (e) => {
-            if (!onAddImageNode) return;
-
             const target = e.target;
             const isEditableTarget = target && (
                 target.tagName === 'INPUT' ||
@@ -1872,70 +1934,95 @@ const Canvas = ({
             if (!items || items.length === 0) return;
 
             const imageItem = Array.from(items).find(item => item.type && item.type.startsWith('image/'));
-            if (!imageItem) return;
+            if (imageItem) {
+                if (!onAddImageNode) return;
 
-            const blob = imageItem.getAsFile();
-            if (!blob) return;
+                const blob = imageItem.getAsFile();
+                if (!blob) return;
 
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Compress similarly to upload flow
-                    const canvas = document.createElement('canvas');
-                    let width = img.width;
-                    let height = img.height;
-                    const maxDim = 1024;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // Compress similarly to upload flow
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        const maxDim = 1024;
 
-                    if (width > maxDim || height > maxDim) {
-                        if (width > height) {
-                            height = Math.round((height * maxDim) / width);
-                            width = maxDim;
-                        } else {
-                            width = Math.round((width * maxDim) / height);
-                            height = maxDim;
+                        if (width > maxDim || height > maxDim) {
+                            if (width > height) {
+                                height = Math.round((height * maxDim) / width);
+                                width = maxDim;
+                            } else {
+                                width = Math.round((width * maxDim) / height);
+                                height = maxDim;
+                            }
                         }
-                    }
 
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
 
-                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                    const originalSizeMB = (blob.size / 1024 / 1024).toFixed(2);
-                    const compressedSizeMB = (compressedDataUrl.length * 0.75 / 1024 / 1024).toFixed(2);
+                        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                        const originalSizeMB = (blob.size / 1024 / 1024).toFixed(2);
+                        const compressedSizeMB = (compressedDataUrl.length * 0.75 / 1024 / 1024).toFixed(2);
 
-                    const rect = canvasRef.current?.getBoundingClientRect();
-                    const { pan, zoom } = viewStateRef.current;
-                    const centerX = rect ? rect.width / 2 : window.innerWidth / 2;
-                    const centerY = rect ? rect.height / 2 : window.innerHeight / 2;
-                    const x = (centerX - pan.x) / zoom;
-                    const y = (centerY - pan.y) / zoom;
+                        const rect = canvasRef.current?.getBoundingClientRect();
+                        const { pan, zoom } = viewStateRef.current;
+                        const centerX = rect ? rect.width / 2 : window.innerWidth / 2;
+                        const centerY = rect ? rect.height / 2 : window.innerHeight / 2;
+                        const x = (centerX - pan.x) / zoom;
+                        const y = (centerY - pan.y) / zoom;
 
-                    const baseWidth = 300;
-                    const baseHeight = Math.round(baseWidth * (height / width));
+                        const baseWidth = 300;
+                        const baseHeight = Math.round(baseWidth * (height / width));
 
-                    onAddImageNode({
-                        id: `image-${Date.now()}`,
-                        x,
-                        y,
-                        src: compressedDataUrl,
-                        width: baseWidth,
-                        height: baseHeight,
-                        dimmed: false,
-                        originalSize: originalSizeMB,
-                        compressedSize: compressedSizeMB
-                    });
+                        onAddImageNode({
+                            id: `image-${Date.now()}`,
+                            x,
+                            y,
+                            src: compressedDataUrl,
+                            width: baseWidth,
+                            height: baseHeight,
+                            dimmed: false,
+                            originalSize: originalSizeMB,
+                            compressedSize: compressedSizeMB
+                        });
+                    };
+                    img.src = event.target.result;
                 };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(blob);
+                reader.readAsDataURL(blob);
+                return;
+            }
+
+            const textData = e.clipboardData?.getData('text/plain');
+            if (!textData) return;
+            if (!onAddTextNode) return;
+
+            // Ignore pure whitespace pastes
+            if (textData.trim().length === 0) return;
+
+            const rect = canvasRef.current?.getBoundingClientRect();
+            const { pan, zoom } = viewStateRef.current;
+            const centerX = rect ? rect.width / 2 : window.innerWidth / 2;
+            const centerY = rect ? rect.height / 2 : window.innerHeight / 2;
+            const x = (centerX - pan.x) / zoom;
+            const y = (centerY - pan.y) / zoom;
+
+            onAddTextNode({
+                id: `text-${Date.now()}`,
+                text: textData,
+                x,
+                y,
+                dimmed: false
+            });
         };
 
         window.addEventListener('paste', handlePaste);
         return () => window.removeEventListener('paste', handlePaste);
-    }, [onAddImageNode]);
+    }, [onAddImageNode, onAddTextNode]);
 
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
@@ -2682,6 +2769,7 @@ const Canvas = ({
                                 zoom={zoom}
                                 onUpdatePosition={onUpdateTextNodePosition}
                                 onUpdateText={onUpdateTextNode}
+                                onUpdateSize={onUpdateTextNodeSize}
                                 onDelete={onDeleteTextNode}
                                 isSelected={selectedIds.includes(node.id) || boxSelectPreviewIds.includes(node.id)}
                                 onMouseDown={handleCardMouseDown}
