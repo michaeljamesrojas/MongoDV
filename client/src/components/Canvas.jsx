@@ -1773,7 +1773,8 @@ const Canvas = ({
     canUndo,
     canRedo,
     selectedIds,
-    setSelectedIds
+    setSelectedIds,
+    onClearCanvas
 }) => {
     const { showToast } = useToast();
     // destruct defaults if undefined to avoid crash, though App passes them
@@ -3634,6 +3635,21 @@ const Canvas = ({
                     }}
                 >
                     ↪️
+                </button>
+                <button
+                    onClick={onClearCanvas}
+                    title="Clear Canvas"
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center'
+                    }}
+                >
+                    🗑️
                 </button>
                 <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.2)' }}></div>
                 <button onClick={() => onViewStateChange(prev => ({ ...prev, zoom: Math.max(prev.zoom - 0.1, 0.1) }))} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>-</button>

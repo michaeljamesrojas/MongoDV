@@ -853,6 +853,23 @@ function App() {
     }));
   }, [saveHistoryPoint]);
 
+  const handleClearCanvas = useCallback(() => {
+    if (window.confirm('Are you sure you want to clear the entire canvas? This action can be undone.')) {
+      saveHistoryPoint();
+      setCanvasDocuments([]);
+      setGapNodes([]);
+      setTextNodes([]);
+      setImageNodes([]);
+      setDiffNodes([]);
+      setMarkedSources(new Set());
+      setHighlightedFields(new Set());
+      setHoistedFields(new Set());
+      setIdColorOverrides({});
+      setSelectedIds([]);
+      showToast('Canvas cleared', 'info', 2000);
+    }
+  }, [saveHistoryPoint, showToast]);
+
   // Wrappers for visual state setters to ensure history tracking
   const handleMarkedSourcesChange = useCallback((updater) => {
     saveHistoryPoint();
@@ -1590,6 +1607,7 @@ function App() {
                 canRedo={history.canRedo}
                 onExport={handleExport}
                 onImport={handleImportClick}
+                onClearCanvas={handleClearCanvas}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
