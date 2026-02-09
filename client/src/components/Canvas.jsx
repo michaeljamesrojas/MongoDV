@@ -2391,6 +2391,42 @@ const Canvas = ({
     // ----- Card Drag & Selection Logic (Refactored) -----
 
     const handleCardMouseDown = (e, id) => {
+        // Handle Middle Click (Zoom Toggle)
+        if (e.button === 1) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const currentZoom = viewStateRef.current.zoom;
+            const distTo10 = Math.abs(currentZoom - 0.1);
+            const distTo100 = Math.abs(currentZoom - 1.0);
+
+            let newZoom;
+            if (distTo10 > distTo100) {
+                newZoom = 0.1;
+            } else {
+                newZoom = 1.0;
+            }
+
+            // Calculate new pan to zoom around mouse position
+            if (canvasRef.current) {
+                const rect = canvasRef.current.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                const { pan } = viewStateRef.current;
+
+                const scaleFactor = newZoom / currentZoom;
+                const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
+                const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
+
+                onViewStateChange({
+                    pan: { x: newPanX, y: newPanY },
+                    zoom: newZoom
+                });
+            }
+            return;
+        }
+
         // e is React synthetic event, but we need native for performance
         if (e.button !== 0) return; // Left click only
 

@@ -193,11 +193,46 @@ function App() {
         e.preventDefault();
         handleRedo();
       }
+      // Toggle Zoom: Shift + Z (when Canvas is visible)
+      else if (showCanvas && e.shiftKey && e.key.toLowerCase() === 'z' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setCanvasView(prev => {
+          const currentZoom = prev.zoom;
+          const distTo10 = Math.abs(currentZoom - 0.1);
+          const distTo100 = Math.abs(currentZoom - 1.0);
+
+          let newZoom;
+          if (distTo10 > distTo100) {
+            newZoom = 0.1;
+          } else {
+            newZoom = 1.0;
+          }
+
+          // Calculate center of the canvas viewport
+          // Sidebar is 300px wide
+          const sidebarWidth = 300;
+          const viewportWidth = window.innerWidth - sidebarWidth;
+          const viewportHeight = window.innerHeight;
+          
+          const centerX = viewportWidth / 2;
+          const centerY = viewportHeight / 2;
+
+          const scaleFactor = newZoom / currentZoom;
+          const newPanX = centerX - (centerX - prev.pan.x) * scaleFactor;
+          const newPanY = centerY - (centerY - prev.pan.y) * scaleFactor;
+
+          return {
+            pan: { x: newPanX, y: newPanY },
+            zoom: newZoom
+          };
+        });
+        showToast('Zoom Toggled', 'info', 1000);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, showCanvas, showToast]);
 
 
   const handleConnect = async (e) => {
