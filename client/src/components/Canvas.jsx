@@ -2589,6 +2589,35 @@ const Canvas = ({
 
     // Calculate drag offset for rendering
 
+    const handleDoubleClick = (e) => {
+        // Only trigger on empty canvas
+        if (e.target !== canvasRef.current) return;
+
+        const currentZoom = zoom;
+        const distTo10 = Math.abs(currentZoom - 0.1);
+        const distTo100 = Math.abs(currentZoom - 1.0);
+
+        let newZoom;
+        if (distTo10 > distTo100) {
+            newZoom = 0.1;
+        } else {
+            newZoom = 1.0;
+        }
+
+        // Calculate new pan to zoom around mouse position
+        const rect = canvasRef.current.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const scaleFactor = newZoom / currentZoom;
+        const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
+        const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
+
+        onViewStateChange({
+            pan: { x: newPanX, y: newPanY },
+            zoom: newZoom
+        });
+    };
 
     return (
         <div ref={canvasRef} style={{
@@ -2599,6 +2628,7 @@ const Canvas = ({
             position: 'relative',
             cursor: backdropToggleMode ? 'crosshair' : (isPanning ? 'grabbing' : 'default')
         }}
+            onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
             onMouseDown={(e) => {
                 if (backdropToggleMode) {
