@@ -48,6 +48,8 @@ function App() {
   const [currentSaveName, setCurrentSaveName] = useState(null); // Track which save is currently loaded
   const [idColorOverrides, setIdColorOverrides] = useState({}); // { [id]: variationIndex }
   const [selectedIds, setSelectedIds] = useState([]); // Lifted state from Canvas
+  const [presentationList, setPresentationList] = useState([]); // Array of { id, type } where type = 'doc'|'gap'|'text'|'image'|'diff'
+  const [presentationIndex, setPresentationIndex] = useState(-1); // -1 = not presenting
 
   const { showToast } = useToast();
   // History Logic
@@ -74,10 +76,12 @@ function App() {
       showBackdroppedArrows: showBackdroppedArrows,
       showAllArrows: showAllArrows,
       idColorOverrides: { ...idColorOverrides },
+      presentationList: [...presentationList],
+      presentationIndex: presentationIndex,
       // Optional view state (included for File Saves, excluded for Undo/Redo)
       view: includeView ? canvasView : undefined
     };
-  }, [canvasDocuments, gapNodes, textNodes, imageNodes, diffNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, canvasView]);
+  }, [canvasDocuments, gapNodes, textNodes, imageNodes, diffNodes, markedSources, highlightedFields, hoistedFields, arrowDirection, showBackdroppedArrows, showAllArrows, idColorOverrides, presentationList, presentationIndex, canvasView]);
 
   // Helper: Restore state from a snapshot
   const restoreCanvasSnapshot = useCallback((snapshot, includeView = false) => {
@@ -100,6 +104,12 @@ function App() {
     if (snapshot.showAllArrows !== undefined) setShowAllArrows(snapshot.showAllArrows);
     if (snapshot.idColorOverrides) setIdColorOverrides(snapshot.idColorOverrides);
     else setIdColorOverrides({});
+
+    if (snapshot.presentationList) setPresentationList(snapshot.presentationList);
+    else setPresentationList([]);
+
+    if (snapshot.presentationIndex !== undefined && snapshot.presentationIndex >= 0) setPresentationIndex(snapshot.presentationIndex);
+    else setPresentationIndex(-1);
 
     if (includeView && snapshot.view) {
       setCanvasView(snapshot.view);
@@ -1663,6 +1673,10 @@ function App() {
                 onImport={handleImportClick}
                 onClearCanvas={handleClearCanvas}
                 onPasteNodes={handlePasteNodes}
+                presentationList={presentationList}
+                setPresentationList={setPresentationList}
+                presentationIndex={presentationIndex}
+                setPresentationIndex={setPresentationIndex}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

@@ -1775,7 +1775,11 @@ const Canvas = ({
     selectedIds,
     setSelectedIds,
     onClearCanvas,
-    onPasteNodes
+    onPasteNodes,
+    presentationList = [],
+    setPresentationList,
+    presentationIndex = -1,
+    setPresentationIndex
 }) => {
     const { showToast } = useToast();
     // destruct defaults if undefined to avoid crash, though App passes them
@@ -1813,8 +1817,116 @@ const Canvas = ({
     // Custom document creation state
     const [pendingCustomCard, setPendingCustomCard] = useState(null); // { x, y, data: string }
 
+    // Presentation editor panel visibility
+    const [showPresentationEditor, setShowPresentationEditor] = useState(false);
+
     // Animation Ref
     const animationFrameRef = useRef(null);
+
+    // Animate camera to a specific pan+zoom using easeInOutCubic
+    const navigateToView = useCallback((targetPan, targetZoom, onComplete) => {
+        const startPan = { ...viewStateRef.current.pan };
+        const startZoom = viewStateRef.current.zoom;
+        const duration = 800;
+        const startTime = performance.now();
+
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const ease = progress < 0.5
+                ? 4 * progress * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+            const currentPan = {
+                x: startPan.x + (targetPan.x - startPan.x) * ease,
+                y: startPan.y + (targetPan.y - startPan.y) * ease
+            };
+            const currentZoom = startZoom + (targetZoom - startZoom) * ease;
+            onViewStateChange({ pan: currentPan, zoom: currentZoom });
+
+            if (progress < 1) {
+                animationFrameRef.current = requestAnimationFrame(animate);
+            } else {
+                animationFrameRef.current = null;
+                if (onComplete) onComplete();
+            }
+        };
+
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = requestAnimationFrame(animate);
+    }, [onViewStateChange]);
+
+    // Navigate camera to center on an entity by id, optionally using a stored view
+    const navigateToEntity = useCallback((entityId, storedView) => {
+        if (!canvasRef.current) return;
+
+        const selectAfterAnim = () => setSelectedIds([entityId]);
+
+        // If a stored view is provided, animate directly to it
+        if (storedView && storedView.pan && storedView.zoom) {
+            navigateToView(storedView.pan, storedView.zoom, selectAfterAnim);
+            return;
+        }
+
+        // Fallback: look up entity position and calculate center
+        let targetCanvasPos = null;
+
+        // Check documents by _id
+        const doc = documents.find(d => d._id === entityId);
+        if (doc) {
+            targetCanvasPos = {
+                x: doc.x + (doc.width ? doc.width / 2 : 175),
+                y: doc.y + (doc.height ? doc.height / 2 : 100)
+            };
+        }
+
+        // Check gap nodes
+        if (!targetCanvasPos) {
+            const gap = gapNodes.find(n => n.id === entityId);
+            if (gap) {
+                targetCanvasPos = { x: gap.x + 75, y: gap.y + 20 };
+            }
+        }
+
+        // Check text nodes
+        if (!targetCanvasPos) {
+            const text = textNodes.find(n => n.id === entityId);
+            if (text) {
+                targetCanvasPos = {
+                    x: text.x + (text.width ? text.width / 2 : 100),
+                    y: text.y + (text.height ? text.height / 2 : 30)
+                };
+            }
+        }
+
+        // Check image nodes
+        if (!targetCanvasPos) {
+            const img = imageNodes.find(n => n.id === entityId);
+            if (img) {
+                targetCanvasPos = {
+                    x: img.x + (img.width ? img.width / 2 : 150),
+                    y: img.y + (img.height ? img.height / 2 : 100)
+                };
+            }
+        }
+
+        // Check diff nodes
+        if (!targetCanvasPos) {
+            const diff = diffNodes.find(n => n.id === entityId);
+            if (diff) {
+                targetCanvasPos = { x: diff.x + 175, y: diff.y + 100 };
+            }
+        }
+
+        if (!targetCanvasPos) return;
+
+        const viewport = canvasRef.current.getBoundingClientRect();
+        const targetZoom = Math.max(viewStateRef.current.zoom, 0.6);
+        const targetPanX = viewport.width / 2 - targetCanvasPos.x * targetZoom;
+        const targetPanY = viewport.height / 2 - targetCanvasPos.y * targetZoom;
+
+        navigateToView({ x: targetPanX, y: targetPanY }, targetZoom, selectAfterAnim);
+    }, [documents, gapNodes, textNodes, imageNodes, diffNodes, navigateToView, setSelectedIds]);
 
     const handleFlagClick = useCallback((targetValue) => {
         if (!canvasRef.current) return;
@@ -2013,6 +2125,34 @@ const Canvas = ({
     // Keyboard listeners
     useEffect(() => {
         const handleKeyDown = (e) => {
+            // Presentation mode: arrow key navigation
+            if (presentationIndex >= 0 && presentationList.length > 0) {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (presentationIndex < presentationList.length - 1) {
+                        const newIdx = presentationIndex + 1;
+                        setPresentationIndex(newIdx);
+                        const entry = presentationList[newIdx];
+                        navigateToEntity(entry.id, entry.view);
+                    }
+                    return;
+                }
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (presentationIndex > 0) {
+                        const newIdx = presentationIndex - 1;
+                        setPresentationIndex(newIdx);
+                        const entry = presentationList[newIdx];
+                        navigateToEntity(entry.id, entry.view);
+                    }
+                    return;
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setPresentationIndex(-1);
+                    return;
+                }
+            }
             if (e.key === 'Escape' && backdropToggleMode) {
                 setBackdropToggleMode(false);
                 return;
@@ -2040,7 +2180,7 @@ const Canvas = ({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedIds, onDeleteMany, backdropToggleMode, handleCopySelected]);
+    }, [selectedIds, onDeleteMany, backdropToggleMode, handleCopySelected, presentationIndex, presentationList, setPresentationIndex, navigateToEntity]);
 
     // Paste listener (images -> image node, text -> text node)
     useEffect(() => {
@@ -4024,6 +4164,432 @@ const Canvas = ({
                     🌏
                 </button>
             </div>
+
+            {/* Presentation Toggle Button — bottom-left */}
+            <button
+                onClick={() => setShowPresentationEditor(prev => !prev)}
+                title="Presentation Mode"
+                onMouseDown={e => e.stopPropagation()}
+                style={{
+                    position: 'absolute',
+                    bottom: '20px',
+                    left: '20px',
+                    background: showPresentationEditor || presentationIndex >= 0 ? 'rgba(251, 191, 36, 0.25)' : 'rgba(0,0,0,0.5)',
+                    backdropFilter: 'blur(4px)',
+                    border: showPresentationEditor || presentationIndex >= 0 ? '1px solid rgba(251, 191, 36, 0.5)' : '1px solid var(--glass-border)',
+                    color: showPresentationEditor || presentationIndex >= 0 ? '#fbbf24' : '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '1.4rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    pointerEvents: 'auto',
+                    zIndex: 100
+                }}
+            >
+                ▶
+            </button>
+
+            {/* Presentation Editor Panel */}
+            {showPresentationEditor && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: '70px',
+                    left: '20px',
+                    width: '260px',
+                    maxHeight: '400px',
+                    background: 'rgba(0,0,0,0.7)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--glass-border)',
+                    color: '#cbd5e1',
+                    fontSize: '0.8rem',
+                    pointerEvents: 'auto',
+                    zIndex: 101,
+                    display: 'flex',
+                    flexDirection: 'column'
+                }}
+                    onMouseDown={e => e.stopPropagation()}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--glass-border)' }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>Presentation</span>
+                        <button
+                            onClick={() => setShowPresentationEditor(false)}
+                            style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem' }}
+                        >✕</button>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+                        {presentationList.length === 0 ? (
+                            <div style={{ padding: '12px', textAlign: 'center', color: '#64748b' }}>
+                                No items. Select entities and click "Add Selected".
+                            </div>
+                        ) : presentationList.map((entry, idx) => {
+                            // Resolve label
+                            let label = entry.type + ' ' + (entry.id || '').slice(-6);
+                            if (entry.type === 'doc') {
+                                const d = documents.find(d => d._id === entry.id);
+                                if (d) label = (d.collection || 'doc') + ' ' + (entry.id || '').slice(-6);
+                            } else if (entry.type === 'text') {
+                                const t = textNodes.find(n => n.id === entry.id);
+                                if (t && t.text) label = 'Text ' + t.text.slice(0, 20);
+                                else label = 'Text ' + (entry.id || '').slice(-6);
+                            } else if (entry.type === 'gap') {
+                                label = 'Gap ' + (entry.id || '').slice(-6);
+                            } else if (entry.type === 'image') {
+                                label = 'Image ' + (entry.id || '').slice(-6);
+                            } else if (entry.type === 'diff') {
+                                label = 'Diff ' + (entry.id || '').slice(-6);
+                            }
+                            return (
+                                <div key={entry.id + '-' + idx} style={{
+                                    padding: '4px 8px',
+                                    background: presentationIndex === idx ? 'rgba(251, 191, 36, 0.15)' : 'transparent',
+                                    borderLeft: presentationIndex === idx ? '2px solid #fbbf24' : '2px solid transparent'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span style={{ minWidth: '18px', color: '#64748b', fontSize: '0.7rem' }}>{idx + 1}.</span>
+                                        <span style={{
+                                            flex: 1,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            cursor: 'pointer'
+                                        }}
+                                            onClick={() => navigateToEntity(entry.id)}
+                                            title={label}
+                                        >{label}</span>
+                                        <button
+                                            onClick={() => {
+                                                if (idx > 0) {
+                                                    setPresentationList(prev => {
+                                                        const next = [...prev];
+                                                        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                                        return next;
+                                                    });
+                                                }
+                                            }}
+                                            disabled={idx === 0}
+                                            style={{ background: 'transparent', border: 'none', color: idx === 0 ? '#334155' : '#94a3b8', cursor: idx === 0 ? 'default' : 'pointer', fontSize: '0.7rem', padding: '1px 3px' }}
+                                            title="Move up"
+                                        >▲</button>
+                                        <button
+                                            onClick={() => {
+                                                if (idx < presentationList.length - 1) {
+                                                    setPresentationList(prev => {
+                                                        const next = [...prev];
+                                                        [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                                        return next;
+                                                    });
+                                                }
+                                            }}
+                                            disabled={idx === presentationList.length - 1}
+                                            style={{ background: 'transparent', border: 'none', color: idx === presentationList.length - 1 ? '#334155' : '#94a3b8', cursor: idx === presentationList.length - 1 ? 'default' : 'pointer', fontSize: '0.7rem', padding: '1px 3px' }}
+                                            title="Move down"
+                                        >▼</button>
+                                        <button
+                                            onClick={() => {
+                                                setPresentationList(prev => prev.filter((_, i) => i !== idx));
+                                                // Adjust presentation index if needed
+                                                if (presentationIndex >= 0) {
+                                                    if (idx < presentationIndex) setPresentationIndex(prev => prev - 1);
+                                                    else if (idx === presentationIndex) setPresentationIndex(-1);
+                                                }
+                                            }}
+                                            style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', padding: '1px 3px' }}
+                                            title="Remove"
+                                        >✕</button>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Add note..."
+                                        value={entry.note || ''}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setPresentationList(prev => {
+                                                const next = [...prev];
+                                                next[idx] = { ...next[idx], note: val };
+                                                return next;
+                                            });
+                                        }}
+                                        style={{
+                                            width: '100%',
+                                            marginTop: '3px',
+                                            marginLeft: '18px',
+                                            padding: '2px 6px',
+                                            background: 'rgba(255,255,255,0.05)',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: '3px',
+                                            color: '#e2e8f0',
+                                            fontSize: '0.7rem',
+                                            outline: 'none',
+                                            boxSizing: 'border-box',
+                                            maxWidth: 'calc(100% - 18px)'
+                                        }}
+                                        onFocus={(e) => e.target.style.borderColor = 'rgba(251, 191, 36, 0.4)'}
+                                        onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', padding: '8px', borderTop: '1px solid var(--glass-border)', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={() => {
+                                if (!selectedIds || selectedIds.length === 0) return;
+                                const currentView = { pan: { ...viewStateRef.current.pan }, zoom: viewStateRef.current.zoom };
+                                const newEntries = selectedIds
+                                    .map(id => {
+                                        // Determine type and store current view
+                                        if (documents.find(d => d._id === id)) return { id, type: 'doc', view: currentView };
+                                        if (gapNodes.find(n => n.id === id)) return { id, type: 'gap', view: currentView };
+                                        if (textNodes.find(n => n.id === id)) return { id, type: 'text', view: currentView };
+                                        if (imageNodes.find(n => n.id === id)) return { id, type: 'image', view: currentView };
+                                        if (diffNodes.find(n => n.id === id)) return { id, type: 'diff', view: currentView };
+                                        return null;
+                                    })
+                                    .filter(Boolean);
+                                if (newEntries.length > 0) {
+                                    setPresentationList(prev => [...prev, ...newEntries]);
+                                }
+                            }}
+                            style={{
+                                flex: 1,
+                                padding: '5px 8px',
+                                background: 'rgba(96, 165, 250, 0.2)',
+                                border: '1px solid rgba(96, 165, 250, 0.3)',
+                                borderRadius: '4px',
+                                color: '#93c5fd',
+                                cursor: 'pointer',
+                                fontSize: '0.75rem'
+                            }}
+                        >+ Add Selected</button>
+                        <button
+                            onClick={() => {
+                                if (presentationList.length > 0) {
+                                    setPresentationIndex(0);
+                                    const entry = presentationList[0];
+                                    navigateToEntity(entry.id, entry.view);
+                                }
+                            }}
+                            disabled={presentationList.length === 0}
+                            style={{
+                                flex: 1,
+                                padding: '5px 8px',
+                                background: presentationList.length === 0 ? 'rgba(100,100,100,0.2)' : 'rgba(251, 191, 36, 0.2)',
+                                border: '1px solid ' + (presentationList.length === 0 ? 'rgba(100,100,100,0.3)' : 'rgba(251, 191, 36, 0.3)'),
+                                borderRadius: '4px',
+                                color: presentationList.length === 0 ? '#475569' : '#fbbf24',
+                                cursor: presentationList.length === 0 ? 'not-allowed' : 'pointer',
+                                fontSize: '0.75rem'
+                            }}
+                        >▶ Play</button>
+                        <button
+                            onClick={() => { setPresentationList([]); setPresentationIndex(-1); }}
+                            disabled={presentationList.length === 0}
+                            style={{
+                                padding: '5px 8px',
+                                background: 'transparent',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: '4px',
+                                color: presentationList.length === 0 ? '#475569' : '#ef4444',
+                                cursor: presentationList.length === 0 ? 'not-allowed' : 'pointer',
+                                fontSize: '0.75rem'
+                            }}
+                        >Clear</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Presentation Floating Note — draggable & resizable */}
+            {presentationIndex >= 0 && presentationList.length > 0 && presentationList[presentationIndex]?.note && (() => {
+                const entry = presentationList[presentationIndex];
+                const notePos = entry.notePos || { x: 65, y: window.innerHeight - 140 };
+                const noteSize = entry.noteSize || { width: 300, height: 60 };
+                return (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: notePos.x + 'px',
+                            top: notePos.y + 'px',
+                            width: noteSize.width + 'px',
+                            minHeight: noteSize.height + 'px',
+                            background: 'rgba(0,0,0,0.75)',
+                            backdropFilter: 'blur(10px)',
+                            padding: '10px 16px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(251, 191, 36, 0.4)',
+                            color: '#fbbf24',
+                            fontSize: '1rem',
+                            fontWeight: 500,
+                            lineHeight: 1.4,
+                            pointerEvents: 'auto',
+                            zIndex: 102,
+                            textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                            boxShadow: '0 0 20px rgba(251, 191, 36, 0.15)',
+                            cursor: 'move',
+                            userSelect: 'none',
+                            overflow: 'hidden',
+                            wordWrap: 'break-word'
+                        }}
+                        onMouseDown={(e) => {
+                            if (e.target.dataset.resize) return;
+                            e.stopPropagation();
+                            const startX = e.clientX;
+                            const startY = e.clientY;
+                            const startPos = { ...notePos };
+                            const onMove = (ev) => {
+                                const dx = ev.clientX - startX;
+                                const dy = ev.clientY - startY;
+                                e.currentTarget.style.left = (startPos.x + dx) + 'px';
+                                e.currentTarget.style.top = (startPos.y + dy) + 'px';
+                            };
+                            const el = e.currentTarget;
+                            const onUp = (ev) => {
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                                const dx = ev.clientX - startX;
+                                const dy = ev.clientY - startY;
+                                const newPos = { x: startPos.x + dx, y: startPos.y + dy };
+                                setPresentationList(prev => {
+                                    const next = [...prev];
+                                    next[presentationIndex] = { ...next[presentationIndex], notePos: newPos };
+                                    return next;
+                                });
+                            };
+                            window.addEventListener('mousemove', onMove);
+                            window.addEventListener('mouseup', onUp);
+                        }}
+                    >
+                        {entry.note}
+                        {/* Resize handle */}
+                        <div
+                            data-resize="true"
+                            style={{
+                                position: 'absolute',
+                                right: 0,
+                                bottom: 0,
+                                width: '14px',
+                                height: '14px',
+                                cursor: 'nwse-resize',
+                                background: 'linear-gradient(135deg, transparent 50%, rgba(251, 191, 36, 0.5) 50%)',
+                                borderRadius: '0 0 8px 0'
+                            }}
+                            onMouseDown={(e) => {
+                                e.stopPropagation();
+                                const startX = e.clientX;
+                                const startY = e.clientY;
+                                const startSize = { ...noteSize };
+                                const parent = e.currentTarget.parentElement;
+                                const onMove = (ev) => {
+                                    const dw = ev.clientX - startX;
+                                    const dh = ev.clientY - startY;
+                                    const newW = Math.max(120, startSize.width + dw);
+                                    const newH = Math.max(30, startSize.height + dh);
+                                    parent.style.width = newW + 'px';
+                                    parent.style.minHeight = newH + 'px';
+                                };
+                                const onUp = (ev) => {
+                                    window.removeEventListener('mousemove', onMove);
+                                    window.removeEventListener('mouseup', onUp);
+                                    const dw = ev.clientX - startX;
+                                    const dh = ev.clientY - startY;
+                                    const newSize = {
+                                        width: Math.max(120, startSize.width + dw),
+                                        height: Math.max(30, startSize.height + dh)
+                                    };
+                                    setPresentationList(prev => {
+                                        const next = [...prev];
+                                        next[presentationIndex] = { ...next[presentationIndex], noteSize: newSize };
+                                        return next;
+                                    });
+                                };
+                                window.addEventListener('mousemove', onMove);
+                                window.addEventListener('mouseup', onUp);
+                            }}
+                        />
+                    </div>
+                );
+            })()}
+
+            {/* Presentation Player Bar */}
+            {presentationIndex >= 0 && presentationList.length > 0 && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: '20px',
+                    left: '65px',
+                    background: 'rgba(0,0,0,0.6)',
+                    backdropFilter: 'blur(8px)',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    color: '#cbd5e1',
+                    fontSize: '0.85rem',
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center',
+                    border: '1px solid rgba(251, 191, 36, 0.5)',
+                    boxShadow: '0 0 12px rgba(251, 191, 36, 0.3)',
+                    pointerEvents: 'auto',
+                    zIndex: 102
+                }}
+                    onMouseDown={e => e.stopPropagation()}
+                >
+                    <button
+                        onClick={() => {
+                            if (presentationIndex > 0) {
+                                const newIdx = presentationIndex - 1;
+                                setPresentationIndex(newIdx);
+                                const entry = presentationList[newIdx];
+                                navigateToEntity(entry.id, entry.view);
+                            }
+                        }}
+                        disabled={presentationIndex === 0}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: presentationIndex === 0 ? '#475569' : '#e2e8f0',
+                            cursor: presentationIndex === 0 ? 'not-allowed' : 'pointer',
+                            fontSize: '1rem',
+                            padding: '2px 8px'
+                        }}
+                    >◀ Prev</button>
+                    <span style={{ minWidth: '50px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                        {presentationIndex + 1} / {presentationList.length}
+                    </span>
+                    <button
+                        onClick={() => {
+                            if (presentationIndex < presentationList.length - 1) {
+                                const newIdx = presentationIndex + 1;
+                                setPresentationIndex(newIdx);
+                                const entry = presentationList[newIdx];
+                                navigateToEntity(entry.id, entry.view);
+                            }
+                        }}
+                        disabled={presentationIndex === presentationList.length - 1}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: presentationIndex === presentationList.length - 1 ? '#475569' : '#e2e8f0',
+                            cursor: presentationIndex === presentationList.length - 1 ? 'not-allowed' : 'pointer',
+                            fontSize: '1rem',
+                            padding: '2px 8px'
+                        }}
+                    >Next ▶</button>
+                    <button
+                        onClick={() => setPresentationIndex(-1)}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            fontSize: '1rem',
+                            padding: '2px 8px'
+                        }}
+                        title="Exit presentation"
+                    >✕</button>
+                </div>
+            )}
         </div >
     );
 };
