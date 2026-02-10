@@ -1774,7 +1774,8 @@ const Canvas = ({
     canRedo,
     selectedIds,
     setSelectedIds,
-    onClearCanvas
+    onClearCanvas,
+    onPasteNodes
 }) => {
     const { showToast } = useToast();
     // destruct defaults if undefined to avoid crash, though App passes them
@@ -1798,6 +1799,7 @@ const Canvas = ({
     const [boxSelectPreviewIds, setBoxSelectPreviewIds] = useState([]); // IDs currently under box selection
     const boxSelectPreviewRef = useRef([]); // Ref to track latest preview for mouseup handler
     const cardRefs = useRef(new Map()); // Map<docId, HTMLElement>
+    const clipboardRef = useRef(null); // Stores copied node data for internal copy/paste
 
     // Backdrop toggle mode state
     const [backdropToggleMode, setBackdropToggleMode] = useState(false);
@@ -1902,11 +1904,131 @@ const Canvas = ({
         return map;
     }, [documents]);
 
+    // Copy selected nodes to internal clipboard
+    const handleCopySelected = useCallback(() => {
+        const ids = selectedIdsRef.current;
+        if (!ids || ids.length === 0) return;
+        const idsSet = new Set(ids);
+
+        const copiedDocs = documents.filter(d => idsSet.has(d._id)).map(d => ({
+            ...d,
+            expandedPaths: [...(d.expandedPaths || [])]
+        }));
+        const copiedGaps = gapNodes.filter(n => idsSet.has(n.id)).map(n => ({ ...n }));
+        const copiedTexts = textNodes.filter(n => idsSet.has(n.id)).map(n => ({ ...n }));
+        const copiedImages = imageNodes.filter(n => idsSet.has(n.id)).map(n => ({ ...n }));
+        const copiedDiffs = diffNodes.filter(n => idsSet.has(n.id)).map(n => ({ ...n }));
+
+        clipboardRef.current = {
+            documents: copiedDocs,
+            gapNodes: copiedGaps,
+            textNodes: copiedTexts,
+            imageNodes: copiedImages,
+            diffNodes: copiedDiffs,
+            pasteCount: 0
+        };
+    }, [documents, gapNodes, textNodes, imageNodes, diffNodes]);
+
+    // Paste from internal clipboard
+    const handlePasteFromClipboard = useCallback(() => {
+        if (!clipboardRef.current || !onPasteNodes) return;
+        const clip = clipboardRef.current;
+        clip.pasteCount = (clip.pasteCount || 0) + 1;
+        const offset = clip.pasteCount * 50;
+
+        // Build ID remapping
+        const idMap = new Map();
+        const ts = Date.now();
+        let counter = 0;
+        const newId = (prefix) => `${prefix}-${ts}-${Math.random().toString(36).substr(2, 4)}-${counter++}`;
+
+        // Generate new IDs
+        clip.documents.forEach(d => idMap.set(d._id, newId(d.data?._id || 'doc')));
+        clip.gapNodes.forEach(n => idMap.set(n.id, newId('gap')));
+        clip.textNodes.forEach(n => idMap.set(n.id, newId('text')));
+        clip.imageNodes.forEach(n => idMap.set(n.id, newId('image')));
+        clip.diffNodes.forEach(n => idMap.set(n.id, newId('diff')));
+
+        const remap = (id) => idMap.get(id) || id;
+
+        const newDocs = clip.documents.map(d => ({
+            ...d,
+            _id: remap(d._id),
+            x: d.x + offset,
+            y: d.y + offset,
+            expandedPaths: [...(d.expandedPaths || [])]
+        }));
+
+        const newGaps = clip.gapNodes.map(n => ({
+            ...n,
+            id: remap(n.id),
+            x: n.x + offset,
+            y: n.y + offset,
+            sourceId: idMap.has(n.sourceId) ? remap(n.sourceId) : n.sourceId,
+            targetId: idMap.has(n.targetId) ? remap(n.targetId) : n.targetId
+        }));
+
+        const newTexts = clip.textNodes.map(n => ({
+            ...n,
+            id: remap(n.id),
+            x: n.x + offset,
+            y: n.y + offset
+        }));
+
+        const newImages = clip.imageNodes.map(n => ({
+            ...n,
+            id: remap(n.id),
+            x: n.x + offset,
+            y: n.y + offset
+        }));
+
+        const newDiffs = clip.diffNodes.map(n => ({
+            ...n,
+            id: remap(n.id),
+            x: n.x + offset,
+            y: n.y + offset,
+            sourceDocId: idMap.has(n.sourceDocId) ? remap(n.sourceDocId) : n.sourceDocId,
+            targetDocId: idMap.has(n.targetDocId) ? remap(n.targetDocId) : n.targetDocId
+        }));
+
+        onPasteNodes({
+            documents: newDocs,
+            gapNodes: newGaps,
+            textNodes: newTexts,
+            imageNodes: newImages,
+            diffNodes: newDiffs
+        });
+
+        // Select the newly pasted nodes
+        const allNewIds = [
+            ...newDocs.map(d => d._id),
+            ...newGaps.map(n => n.id),
+            ...newTexts.map(n => n.id),
+            ...newImages.map(n => n.id),
+            ...newDiffs.map(n => n.id)
+        ];
+        setSelectedIds(allNewIds);
+    }, [onPasteNodes, setSelectedIds]);
+
     // Keyboard listeners
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.key === 'Escape' && backdropToggleMode) {
                 setBackdropToggleMode(false);
+                return;
+            }
+            // Ctrl+C / Cmd+C — copy selected nodes
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+                const target = e.target;
+                const isEditable = target && (
+                    target.tagName === 'INPUT' ||
+                    target.tagName === 'TEXTAREA' ||
+                    target.isContentEditable
+                );
+                if (isEditable) return;
+                if (selectedIds.length > 0) {
+                    handleCopySelected();
+                }
                 return;
             }
             if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -1918,7 +2040,7 @@ const Canvas = ({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedIds, onDeleteMany, backdropToggleMode]);
+    }, [selectedIds, onDeleteMany, backdropToggleMode, handleCopySelected]);
 
     // Paste listener (images -> image node, text -> text node)
     useEffect(() => {
@@ -1930,6 +2052,13 @@ const Canvas = ({
                 target.isContentEditable
             );
             if (isEditableTarget) return;
+
+            // Internal clipboard takes priority
+            if (clipboardRef.current) {
+                e.preventDefault();
+                handlePasteFromClipboard();
+                return;
+            }
 
             const items = e.clipboardData?.items;
             if (!items || items.length === 0) return;
@@ -2023,7 +2152,7 @@ const Canvas = ({
 
         window.addEventListener('paste', handlePaste);
         return () => window.removeEventListener('paste', handlePaste);
-    }, [onAddImageNode, onAddTextNode]);
+    }, [onAddImageNode, onAddTextNode, handlePasteFromClipboard]);
 
     // Date Gap Logic
     const [dateSelection, setDateSelection] = useState(null); // { value: Date, stableId: string }
@@ -3068,6 +3197,31 @@ const Canvas = ({
                 }}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopySelected();
+                            setCardContextMenu(null);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#e2e8f0',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '0.9rem',
+                            borderRadius: '4px',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <span style={{ marginRight: '8px' }}>📋</span>
+                        Copy {selectedIds.length > 1 ? `(${selectedIds.length})` : ''}
+                    </button>
                     <button
                         disabled={selectedIds.length < 2}
                         onClick={(e) => {

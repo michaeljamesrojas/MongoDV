@@ -714,6 +714,25 @@ function App() {
     }
   };
 
+  const handlePasteNodes = useCallback(({ documents: newDocs, gapNodes: newGaps, textNodes: newTexts, imageNodes: newImages, diffNodes: newDiffs }) => {
+    saveHistoryPoint();
+    if (newDocs && newDocs.length > 0) {
+      setCanvasDocuments(prev => [...prev, ...newDocs]);
+    }
+    if (newGaps && newGaps.length > 0) {
+      setGapNodes(prev => [...prev, ...newGaps]);
+    }
+    if (newTexts && newTexts.length > 0) {
+      setTextNodes(prev => [...prev, ...newTexts]);
+    }
+    if (newImages && newImages.length > 0) {
+      setImageNodes(prev => [...prev, ...newImages]);
+    }
+    if (newDiffs && newDiffs.length > 0) {
+      setDiffNodes(prev => [...prev, ...newDiffs]);
+    }
+  }, [saveHistoryPoint]);
+
   const handleDeleteCanvasDocument = (id) => {
     saveHistoryPoint();
     setCanvasDocuments(prev => prev.filter(d => d._id !== id));
@@ -1643,6 +1662,7 @@ function App() {
                 onExport={handleExport}
                 onImport={handleImportClick}
                 onClearCanvas={handleClearCanvas}
+                onPasteNodes={handlePasteNodes}
               />
             ) : selectedCollection ? (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
