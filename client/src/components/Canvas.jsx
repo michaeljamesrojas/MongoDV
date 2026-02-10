@@ -2171,7 +2171,7 @@ const Canvas = ({
                 }
                 return;
             }
-            if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (e.key === 'Delete') {
                 if (selectedIds.length > 0) {
                     onDeleteMany && onDeleteMany(selectedIds);
                     setSelectedIds([]);
